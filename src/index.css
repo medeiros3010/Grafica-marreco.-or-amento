@@ -1,0 +1,47 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background-color: #F3F4F6;
+    color: #374151;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  code, kbd, samp, pre, .font-mono {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-feature-settings: "tnum" 1;
+  }
+}
+
+/* Gráfica Marreco Design System Utility Tokens */
+.bg-marreco {
+  background-color: #01B8AA;
+}
+
+.bg-marreco-hover:hover {
+  background-color: #009E91;
+}
+
+.text-marreco {
+  color: #01B8AA;
+}
+
+.border-marreco {
+  border-color: #01B8AA;
+}
+
+/* Zebra striping suave para tabelas */
+table tbody tr:nth-child(even) {
+  background-color: #FAFAFA;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background-color: white !important;
+  }
+}

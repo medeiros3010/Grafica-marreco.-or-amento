@@ -1,0 +1,6 @@
+{
+  "name": "Gráfica Marreco - Orçamento, Apontamento e Custos",
+  "description": "Sistema de gestão de custos e produção para a Gráfica Marreco com orçamento de operações, apontamento em chão de fábrica e comparativo orçado x realizado.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
