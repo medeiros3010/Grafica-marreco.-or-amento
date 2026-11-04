@@ -10,7 +10,7 @@ import { Modal } from './Modal';
 interface ConfirmDialogProps {
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: () => void;
+  onConfirm: () => void | Promise<void>;
   title: string;
   message: string;
   confirmText?: string;
@@ -61,9 +61,8 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
         <button
           type="button"
           disabled={confirmDisabled}
-          onClick={() => {
-            onConfirm();
-            onClose();
+          onClick={async () => {
+            await onConfirm();
           }}
           className={`px-4 py-2 text-xs font-medium rounded-lg transition-colors disabled:opacity-50 ${confirmBtnClass}`}
         >

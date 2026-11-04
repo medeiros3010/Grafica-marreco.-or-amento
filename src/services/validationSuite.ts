@@ -706,6 +706,110 @@ export async function runAllValidationTests(): Promise<TestResult[]> {
     });
   }
 
+  // 15. Exclusão Definitiva de Orçamento com Cascata e Preservação de Cadastros
+  {
+    const initialMachines = await storage.getAllMachines();
+    const initialMaterials = await storage.getAllMaterials();
+    const machCount = initialMachines.length;
+    const matCount = initialMaterials.length;
+
+    // 1. Testa criação e exclusão definitiva de orçamento
+    const testProd: Product = {
+      id: 'prod_test_delete_15',
+      code: 'PRD-DEL-15',
+      name: 'Orçamento Teste Exclusão Direta',
+      quantity: 1000,
+      productionUnit: 'un',
+      budgetDate: '2026-11-04',
+      status: 'RASCUNHO',
+      currentRevisionNumber: 0,
+      revisions: [],
+      draftOperations: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    await storage.saveProduct(testProd);
+
+    // Registra log vinculado para testar exclusão em cascata
+    const testLog: ProductionLog = {
+      id: 'log_test_del_15',
+      productId: testProd.id,
+      operationId: 'op_test_15',
+      date: '2026-11-04',
+      time: '10:00',
+      quantityProcessed: 1000,
+      quantityApproved: 1000,
+      quantityScrapped: 0,
+      actualSetupSeconds: 300,
+      actualProductionSeconds: 900,
+      actualLaborHours: 0.33,
+      actualMachineHours: 0.33,
+      actualHourlyLaborRate: 40,
+      actualHourlyMachineRate: 50,
+      actualMaterialCost: 0,
+      actualLaborCost: 13.2,
+      actualMachineCost: 16.5,
+      actualTotalCost: 29.7,
+      cancelled: false,
+      createdAt: new Date().toISOString(),
+    };
+    await storage.saveLog(testLog);
+
+    // Exclusão definitiva direta
+    const delRes = await storage.deleteProduct(testProd.id);
+    const activeProdsAfterDel = await storage.getAllProducts();
+    const isProductGone = !activeProdsAfterDel.some((p) => p.id === testProd.id);
+    const logsAfterDel = await storage.getLogsByProductId(testProd.id);
+    const areLogsCascadeCleaned = logsAfterDel.length === 0;
+
+    // 2. Testa criação e exclusão direta de tarefa
+    const testTask: StandardTask = {
+      id: 'task_test_delete_15',
+      code: 'TSK-DEL-15',
+      name: 'Tarefa Teste Exclusão Direta',
+      sector: 'Acabamento',
+      productionUnit: 'un',
+      timeModel: 'MODELO_A',
+      setupTimeSeconds: 60,
+      speedPerHour: 1000,
+      hourlyLaborRate: 30,
+      hourlyMachineRate: 50,
+      materialApplication: 'FIXO',
+      active: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    await storage.saveTask(testTask);
+    const delTaskRes = await storage.deleteTask(testTask.id);
+    const allTasksAfterDel = await storage.getAllTasks();
+    const isTaskGone = !allTasksAfterDel.some((t) => t.id === testTask.id);
+
+    // 3. Verifica integridade: máquinas e matérias-primas devem estar 100% inalteradas
+    const finalMachines = await storage.getAllMachines();
+    const finalMaterials = await storage.getAllMaterials();
+    const machPreserved = finalMachines.length === machCount;
+    const matPreserved = finalMaterials.length === matCount;
+
+    const passed =
+      delRes.success === true &&
+      isProductGone &&
+      areLogsCascadeCleaned &&
+      delTaskRes.success === true &&
+      isTaskGone &&
+      machPreserved &&
+      matPreserved;
+
+    results.push({
+      id: 15,
+      title: 'Exclusão Definitiva de Orçamento com Cascata e Preservação de Cadastros',
+      scenario: 'Exclusão definitiva e imediata de orçamento com limpeza de logs em cascata, exclusão direta de tarefa e preservação estrita de máquinas e matérias-primas',
+      expected: 'Orçamento e logs sumiram permanentemente do banco; Tarefa excluída diretamente; Máquinas e Matérias-Primas 100% preservadas',
+      actual: `Orçamento Excluído: ${isProductGone} | Logs em Cascata Limpos: ${areLogsCascadeCleaned} | Tarefa Excluída: ${isTaskGone} | Máquinas & Insumos Intactos: ${machPreserved && matPreserved}`,
+      passed,
+      details: 'Sem lixeira intermediária: a exclusão é definitiva, não deixa órfãos no banco e respeita integralmente os dados mestres pré-existentes.',
+    });
+  }
+
   return results;
 }
 

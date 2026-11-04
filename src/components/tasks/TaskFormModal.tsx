@@ -44,7 +44,11 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
   const [machine, setMachine] = useState('');
   const [productionUnit, setProductionUnit] = useState('Folhas');
 
-  // Modelo de tempo
+  // Tipo de Precificação: Custo por Hora ou Custo por Milheiro
+  const [billingUnit, setBillingUnit] = useState<'HORA' | 'MILHEIRO'>('HORA');
+  const [costPerThousand, setCostPerThousand] = useState<number>(80.0);
+
+  // Modelo de tempo (para Custo por Hora)
   const [timeModel, setTimeModel] = useState<TimeCalculationModel>('MODELO_A');
   
   // Setup
@@ -63,7 +67,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
   const [unitTimeValue, setUnitTimeValue] = useState<number>(5);
   const [unitTimeUnit, setUnitTimeUnit] = useState<TimeUnit>('SEGUNDOS');
 
-  // Custos padrão
+  // Custos padrão por hora
   const [hourlyLaborRate, setHourlyLaborRate] = useState<number>(45.0);
   const [hourlyMachineRate, setHourlyMachineRate] = useState<number>(120.0);
 
@@ -78,7 +82,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
   const [error, setError] = useState<string | null>(null);
 
   // Simulador interativo em tempo real
-  const [previewQty, setPreviewQty] = useState<number>(10000);
+  const [previewQty, setPreviewQty] = useState<number>(5000);
 
   useEffect(() => {
     // Carregar máquinas cadastradas
@@ -94,7 +98,9 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
       setMachineId(initialTask.machineId || '');
       setMachine(initialTask.machine || '');
       setProductionUnit(initialTask.productionUnit);
-      setTimeModel(initialTask.timeModel);
+      setBillingUnit(initialTask.billingUnit || 'HORA');
+      setCostPerThousand(initialTask.costPerThousand ?? 80.0);
+      setTimeModel(initialTask.timeModel || 'MODELO_A');
 
       // Converter setup para minutos ou manter
       const setupMin = Math.round(initialTask.setupTimeSeconds / 60);
@@ -126,6 +132,8 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
       setMachineId('');
       setMachine('');
       setProductionUnit('Folhas');
+      setBillingUnit('HORA');
+      setCostPerThousand(80.0);
       setTimeModel('MODELO_A');
       setSetupValue(30);
       setSetupUnit('MINUTOS');
@@ -140,7 +148,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
     setError(null);
   }, [initialTask, isOpen]);
 
-  // Manipulador de troca de máquina
+  // Manipulador de troca de máquina: herda o tipo de precificação e o valor automaticamente
   const handleMachineSelect = (selectedId: string) => {
     setMachineId(selectedId);
     if (!selectedId) {
@@ -150,8 +158,15 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
     const selectedMach = machinesList.find((m) => m.id === selectedId);
     if (selectedMach) {
       setMachine(selectedMach.nome);
-      // REQUISITO: A entidade Task (Tarefa) agora deve buscar o custoHora diretamente da Máquina vinculada
-      setHourlyMachineRate(selectedMach.custoHora);
+      if (selectedMach.tipoCobranca === 'MILHEIRO') {
+        setBillingUnit('MILHEIRO');
+        if (selectedMach.custoMilheiro !== undefined) {
+          setCostPerThousand(selectedMach.custoMilheiro);
+        }
+      } else {
+        setBillingUnit('HORA');
+        setHourlyMachineRate(selectedMach.custoHora);
+      }
     }
   };
 
@@ -181,6 +196,10 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
       setError('Informe o nome da tarefa.');
       return;
     }
+    if (billingUnit === 'MILHEIRO' && (costPerThousand === undefined || costPerThousand < 0)) {
+      setError('Informe um valor por milheiro válido (maior ou igual a zero).');
+      return;
+    }
 
     try {
       setLoading(true);
@@ -195,14 +214,16 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
         machineId: machineId || undefined,
         machine: machine.trim() || undefined,
         productionUnit: productionUnit.trim() || 'Unidade',
-        timeModel,
-        setupTimeSeconds: setupSeconds,
-        speedPerHour: timeModel === 'MODELO_A' ? Number(speedPerHour) : undefined,
-        batchSize: timeModel === 'MODELO_B' ? Number(batchSize) : undefined,
-        batchTimeSeconds: timeModel === 'MODELO_B' ? batchTimeSeconds : undefined,
-        unitTimeSeconds: timeModel === 'MODELO_C' ? unitTimeSeconds : undefined,
-        hourlyLaborRate: Number(hourlyLaborRate) || 0,
-        hourlyMachineRate: Number(hourlyMachineRate) || 0,
+        billingUnit,
+        costPerThousand: billingUnit === 'MILHEIRO' ? Number(costPerThousand) : undefined,
+        timeModel: billingUnit === 'HORA' ? timeModel : 'MODELO_A',
+        setupTimeSeconds: billingUnit === 'HORA' ? setupSeconds : 0,
+        speedPerHour: billingUnit === 'HORA' && timeModel === 'MODELO_A' ? Number(speedPerHour) : undefined,
+        batchSize: billingUnit === 'HORA' && timeModel === 'MODELO_B' ? Number(batchSize) : undefined,
+        batchTimeSeconds: billingUnit === 'HORA' && timeModel === 'MODELO_B' ? batchTimeSeconds : undefined,
+        unitTimeSeconds: billingUnit === 'HORA' && timeModel === 'MODELO_C' ? unitTimeSeconds : undefined,
+        hourlyLaborRate: billingUnit === 'HORA' ? Number(hourlyLaborRate) || 0 : 0,
+        hourlyMachineRate: billingUnit === 'HORA' ? Number(hourlyMachineRate) || 0 : 0,
         materialName: materialName.trim() || undefined,
         materialUnit: materialUnit.trim() || undefined,
         materialCostPerUnit: Number(materialCostPerUnit) || 0,
@@ -225,8 +246,8 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title={initialTask ? `Editar Tarefa: ${initialTask.code}` : 'Cadastrar Nova Tarefa Padrão'}
-      subtitle="Defina parâmetros operacionais, modelo de cálculo do tempo e custos padrão de mão de obra e máquina"
+      title={initialTask ? `Editar Tarefa: ${initialTask.code}` : 'Cadastrar Nova Tarefa'}
+      subtitle="Defina o método de precificação (por hora ou por milheiro) e os parâmetros técnicos da operação"
       maxWidth="3xl"
     >
       <form onSubmit={handleSubmit} className="space-y-6">
@@ -264,7 +285,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                 required
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Ex: Impressão Offset 4 Cores, Corte Linear, Laminação BOPP"
+                placeholder="Ex: Impressão Offset 4 Cores, Corte Linear, Dobra, Colagem"
                 className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#01B8AA]"
               />
             </div>
@@ -288,30 +309,30 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center justify-between">
                 <span>Máquina Vinculada</span>
-                {machineId && <span className="text-[10px] text-[#01B8AA] font-bold">Auto-taxa ativa</span>}
+                {machineId && <span className="text-[10px] text-[#01B8AA] font-bold">Auto-vínculo ativo</span>}
               </label>
               <select
                 value={machineId}
                 onChange={(e) => handleMachineSelect(e.target.value)}
                 className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#01B8AA]"
               >
-                <option value="">Nenhuma máquina cadastrada</option>
+                <option value="">Nenhuma máquina vinculada</option>
                 {machinesList.map((m) => (
                   <option key={m.id} value={m.id}>
-                    {m.nome} — {formatBRL(m.custoHora)}/h
+                    {m.nome} — {m.tipoCobranca === 'MILHEIRO' ? `${formatBRL(m.custoMilheiro || 0)}/mil` : `${formatBRL(m.custoHora)}/h`}
                   </option>
                 ))}
               </select>
               {machineId ? (
                 <span className="text-[10px] text-emerald-700 font-medium block mt-1">
-                  Taxa horária vinculada automaticamente: {formatBRL(hourlyMachineRate)}/h
+                  Taxa herdada da máquina: {billingUnit === 'MILHEIRO' ? `${formatBRL(costPerThousand)} / 1.000 un` : `${formatBRL(hourlyMachineRate)}/h`}
                 </span>
               ) : (
                 <input
                   type="text"
                   value={machine}
                   onChange={(e) => setMachine(e.target.value)}
-                  placeholder="Ou digite o nome manual da máquina"
+                  placeholder="Ou digite o nome avulso da máquina/processo"
                   className="w-full mt-1.5 px-3 py-1.5 text-xs border border-slate-200 rounded-lg bg-slate-50 focus:bg-white"
                 />
               )}
@@ -339,165 +360,387 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
               rows={2}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Ex: Acerto de tinteiros, registro de 4 cores, checagem de densitometria e acerto de lavagem."
+              placeholder="Ex: Instruções de regulagem, acerto e processo operacional."
               className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg"
             />
           </div>
         </div>
 
-        {/* 2. MODELO DE CÁLCULO DO TEMPO (REQUISITO CRÍTICO) */}
-        <div className="space-y-4">
-          <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider border-b border-slate-100 pb-2">
-            2. Modelo de Cálculo de Tempo de Produção
-          </h4>
-
-          {/* Seletor dos 3 Modelos Mandatórios */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <button
-              type="button"
-              onClick={() => setTimeModel('MODELO_A')}
-              className={`p-3 rounded-lg border text-left transition-all ${
-                timeModel === 'MODELO_A'
-                  ? 'border-[#01B8AA] bg-[#01B8AA]/10 ring-1 ring-[#01B8AA]'
-                  : 'border-slate-200 hover:border-slate-300 bg-white'
-              }`}
-            >
-              <div className="text-xs font-bold text-slate-900 mb-1">Modelo A</div>
-              <div className="text-[11px] font-medium text-[#00897B]">Preparação + Velocidade/Hora</div>
-              <p className="text-[10px] text-slate-500 mt-1 leading-normal">
-                Tempo = Setup + (Quantidade / Velocidade pç/h). Ex: Offset 900 pçs/h.
-              </p>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setTimeModel('MODELO_B')}
-              className={`p-3 rounded-lg border text-left transition-all ${
-                timeModel === 'MODELO_B'
-                  ? 'border-[#01B8AA] bg-[#01B8AA]/10 ring-1 ring-[#01B8AA]'
-                  : 'border-slate-200 hover:border-slate-300 bg-white'
-              }`}
-            >
-              <div className="text-xs font-bold text-slate-900 mb-1">Modelo B</div>
-              <div className="text-[11px] font-medium text-[#00897B]">Tempo por Lote</div>
-              <p className="text-[10px] text-slate-500 mt-1 leading-normal">
-                Tempo = Lotes necessários × Tempo por lote. Ex: Guilhotina a cada 500 folhas.
-              </p>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setTimeModel('MODELO_C')}
-              className={`p-3 rounded-lg border text-left transition-all ${
-                timeModel === 'MODELO_C'
-                  ? 'border-[#01B8AA] bg-[#01B8AA]/10 ring-1 ring-[#01B8AA]'
-                  : 'border-slate-200 hover:border-slate-300 bg-white'
-              }`}
-            >
-              <div className="text-xs font-bold text-slate-900 mb-1">Modelo C</div>
-              <div className="text-[11px] font-medium text-[#00897B]">Tempo por Unidade</div>
-              <p className="text-[10px] text-slate-500 mt-1 leading-normal">
-                Tempo = Quantidade × Segundos por peça. Ex: 5 segundos por embalagem.
-              </p>
-            </button>
+        {/* 2. TIPO DE PRECIFICAÇÃO (REQUISITO MANDATÓRIO) */}
+        <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+          <div className="flex items-center justify-between">
+            <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+              2. Tipo de Precificação da Tarefa
+            </h4>
+            <span className="text-[11px] font-semibold text-[#01B8AA] bg-[#01B8AA]/10 px-2 py-0.5 rounded">
+              {billingUnit === 'HORA' ? 'Baseado em Tempo (Horas)' : 'Baseado em Volume (Milheiro)'}
+            </span>
           </div>
 
-          {/* Parâmetros do Modelo Escolhido */}
-          <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 space-y-4">
-            {/* Tempo de Preparação (Setup) - Contabilizado UMA ÚNICA VEZ */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div className="sm:col-span-2">
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Tempo de Preparação (Setup)
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    type="number"
-                    min={0}
-                    step="any"
-                    value={setupValue}
-                    onChange={(e) => setSetupValue(Number(e.target.value))}
-                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg bg-white tabular-nums"
-                  />
-                  <select
-                    value={setupUnit}
-                    onChange={(e) => setSetupUnit(e.target.value as TimeUnit)}
-                    className="px-3 py-2 text-xs border border-slate-300 rounded-lg bg-white shrink-0"
-                  >
-                    <option value="SEGUNDOS">Segundos</option>
-                    <option value="MINUTOS">Minutos</option>
-                    <option value="HORAS">Horas</option>
-                  </select>
-                </div>
-                <span className="text-[10px] text-slate-500 mt-1 block">
-                  Contabilizado 1 única vez por lote/ordem. Não é multiplicado pela quantidade de peças.
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => setBillingUnit('HORA')}
+              className={`p-3.5 rounded-xl border text-left transition-all ${
+                billingUnit === 'HORA'
+                  ? 'border-[#01B8AA] bg-white ring-2 ring-[#01B8AA]/30 shadow-xs'
+                  : 'border-slate-200 hover:border-slate-300 bg-white/70'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs font-bold text-slate-900">Custo por Hora</span>
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${billingUnit === 'HORA' ? 'bg-[#01B8AA] text-white' : 'bg-slate-200 text-slate-600'}`}>
+                  R$/h
                 </span>
               </div>
+              <p className="text-[11px] text-slate-500 leading-relaxed">
+                O sistema utilizará o tempo de execução (em horas) para calcular o custo.
+              </p>
+              <div className="mt-2 text-[10px] text-emerald-700 font-medium">
+                Ex: 2 horas de execução a R$ 120,00/h = R$ 240,00.
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setBillingUnit('MILHEIRO')}
+              className={`p-3.5 rounded-xl border text-left transition-all ${
+                billingUnit === 'MILHEIRO'
+                  ? 'border-[#01B8AA] bg-white ring-2 ring-[#01B8AA]/30 shadow-xs'
+                  : 'border-slate-200 hover:border-slate-300 bg-white/70'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs font-bold text-slate-900">Custo por Milheiro</span>
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${billingUnit === 'MILHEIRO' ? 'bg-[#01B8AA] text-white' : 'bg-slate-200 text-slate-600'}`}>
+                  R$/1.000 un
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500 leading-relaxed">
+                O sistema utilizará a quantidade produzida para calcular o custo proporcionalmente a cada mil unidades.
+              </p>
+              <div className="mt-2 text-[10px] text-amber-700 font-medium">
+                Ex: 5.000 unidades a R$ 80,00/milheiro = R$ 400,00.
+              </div>
+            </button>
+          </div>
+        </div>
+
+        {/* 3. PARÂMETROS DINÂMICOS CONFORME O TIPO DE PRECIFICAÇÃO */}
+        {billingUnit === 'MILHEIRO' ? (
+          /* PAINEL EXCLUSIVO PARA CUSTO POR MILHEIRO */
+          <div className="p-4 bg-amber-50/50 border border-amber-200 rounded-xl space-y-4">
+            <h4 className="text-xs font-bold text-amber-950 uppercase tracking-wider border-b border-amber-200 pb-2">
+              3. Parâmetro de Cobrança por Milheiro
+            </h4>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-800 mb-1">
+                Valor Cobrado por Milheiro (R$ a cada 1.000 unidades) *
+              </label>
+              <div className="relative max-w-sm">
+                <span className="absolute left-3 top-2 text-xs text-slate-400 font-semibold">R$</span>
+                <input
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  required
+                  value={costPerThousand}
+                  onChange={(e) => setCostPerThousand(Number(e.target.value))}
+                  className="w-full pl-9 pr-3 py-2 text-xs border border-slate-300 rounded-lg font-bold tabular-nums focus:outline-none focus:ring-2 focus:ring-[#01B8AA]"
+                />
+              </div>
+              <span className="text-[11px] text-slate-500 mt-1 block">
+                O valor é calculado proporcionalmente inclusive para quantidades fracionadas (ex: 2.500 unidades custarão {formatBRL((2500 / 1000) * costPerThousand)}).
+              </span>
             </div>
 
-            {/* Campos condicionais por Modelo */}
-            {timeModel === 'MODELO_A' && (
-              <div className="pt-2 border-t border-slate-200">
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Velocidade Nominal de Produção ({productionUnit} por hora) *
-                </label>
-                <div className="flex items-center gap-2 max-w-sm">
-                  <input
-                    type="number"
-                    min={1}
-                    value={speedPerHour}
-                    onChange={(e) => setSpeedPerHour(Number(e.target.value))}
-                    placeholder="Ex: 900 ou 4500"
-                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg bg-white tabular-nums"
-                  />
-                  <span className="text-xs text-slate-500 whitespace-nowrap">
-                    {productionUnit}/h
+            {/* Simulador Interativo por Milheiro */}
+            <div className="p-3 bg-white rounded-lg border border-amber-200 flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="flex items-center gap-2">
+                <Calculator className="w-4 h-4 text-amber-600 shrink-0" />
+                <span className="text-xs font-medium text-slate-700">Simulação para:</span>
+                <input
+                  type="number"
+                  min={1}
+                  value={previewQty}
+                  onChange={(e) => setPreviewQty(Number(e.target.value))}
+                  className="w-28 px-2 py-1 text-xs border border-slate-300 rounded text-center font-bold tabular-nums"
+                />
+                <span className="text-xs text-slate-500">{productionUnit}</span>
+              </div>
+              <div className="flex items-center gap-3 text-xs">
+                <div className="text-right">
+                  <span className="text-[10px] text-slate-400 block">Milheiros Produzidos:</span>
+                  <span className="font-semibold text-slate-800 tabular-nums">
+                    {(previewQty / 1000).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 3 })} mil
+                  </span>
+                </div>
+                <div className="text-right">
+                  <span className="text-[10px] text-slate-400 block">Custo Total Calculado:</span>
+                  <span className="font-bold text-amber-700 text-sm tabular-nums">
+                    {formatBRL((previewQty / 1000) * costPerThousand)}
                   </span>
                 </div>
               </div>
-            )}
+            </div>
+          </div>
+        ) : (
+          /* PAINEL EXCLUSIVO PARA CUSTO POR HORA (MODELO DE TEMPOS E TAXAS) */
+          <>
+            <div className="space-y-4">
+              <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider border-b border-slate-100 pb-2">
+                3. Modelo de Cálculo de Tempo de Produção
+              </h4>
 
-            {timeModel === 'MODELO_B' && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-200">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Tamanho do Lote ({productionUnit} por lote) *
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    value={batchSize}
-                    onChange={(e) => setBatchSize(Number(e.target.value))}
-                    placeholder="Ex: 500"
-                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg bg-white tabular-nums"
-                  />
+              {/* Seletor dos 3 Modelos */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setTimeModel('MODELO_A')}
+                  className={`p-3 rounded-lg border text-left transition-all ${
+                    timeModel === 'MODELO_A'
+                      ? 'border-[#01B8AA] bg-[#01B8AA]/10 ring-1 ring-[#01B8AA]'
+                      : 'border-slate-200 hover:border-slate-300 bg-white'
+                  }`}
+                >
+                  <div className="text-xs font-bold text-slate-900 mb-1">Modelo A</div>
+                  <div className="text-[11px] font-medium text-[#00897B]">Preparação + Velocidade/Hora</div>
+                  <p className="text-[10px] text-slate-500 mt-1 leading-normal">
+                    Tempo = Setup + (Quantidade / Velocidade pç/h).
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setTimeModel('MODELO_B')}
+                  className={`p-3 rounded-lg border text-left transition-all ${
+                    timeModel === 'MODELO_B'
+                      ? 'border-[#01B8AA] bg-[#01B8AA]/10 ring-1 ring-[#01B8AA]'
+                      : 'border-slate-200 hover:border-slate-300 bg-white'
+                  }`}
+                >
+                  <div className="text-xs font-bold text-slate-900 mb-1">Modelo B</div>
+                  <div className="text-[11px] font-medium text-[#00897B]">Tempo por Lote</div>
+                  <p className="text-[10px] text-slate-500 mt-1 leading-normal">
+                    Tempo = Lotes necessários × Tempo por lote.
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setTimeModel('MODELO_C')}
+                  className={`p-3 rounded-lg border text-left transition-all ${
+                    timeModel === 'MODELO_C'
+                      ? 'border-[#01B8AA] bg-[#01B8AA]/10 ring-1 ring-[#01B8AA]'
+                      : 'border-slate-200 hover:border-slate-300 bg-white'
+                  }`}
+                >
+                  <div className="text-xs font-bold text-slate-900 mb-1">Modelo C</div>
+                  <div className="text-[11px] font-medium text-[#00897B]">Tempo por Unidade</div>
+                  <p className="text-[10px] text-slate-500 mt-1 leading-normal">
+                    Tempo = Quantidade × Segundos por peça.
+                  </p>
+                </button>
+              </div>
+
+              {/* Parâmetros do Modelo Escolhido */}
+              <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Tempo de Preparação (Setup)
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="number"
+                        min={0}
+                        step="any"
+                        value={setupValue}
+                        onChange={(e) => setSetupValue(Number(e.target.value))}
+                        className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg bg-white tabular-nums"
+                      />
+                      <select
+                        value={setupUnit}
+                        onChange={(e) => setSetupUnit(e.target.value as TimeUnit)}
+                        className="px-3 py-2 text-xs border border-slate-300 rounded-lg bg-white shrink-0"
+                      >
+                        <option value="SEGUNDOS">Segundos</option>
+                        <option value="MINUTOS">Minutos</option>
+                        <option value="HORAS">Horas</option>
+                      </select>
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Tempo por Lote *
-                  </label>
-                  <div className="flex gap-2">
+
+                {timeModel === 'MODELO_A' && (
+                  <div className="pt-2 border-t border-slate-200">
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Velocidade Nominal de Produção ({productionUnit} por hora) *
+                    </label>
+                    <div className="flex items-center gap-2 max-w-sm">
+                      <input
+                        type="number"
+                        min={1}
+                        value={speedPerHour}
+                        onChange={(e) => setSpeedPerHour(Number(e.target.value))}
+                        className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg bg-white tabular-nums"
+                      />
+                      <span className="text-xs text-slate-500 whitespace-nowrap">
+                        {productionUnit}/h
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {timeModel === 'MODELO_B' && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-200">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Tamanho do Lote ({productionUnit} por lote) *
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        value={batchSize}
+                        onChange={(e) => setBatchSize(Number(e.target.value))}
+                        className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg bg-white tabular-nums"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Tempo por Lote *
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          type="number"
+                          min={0}
+                          step="any"
+                          value={batchTimeValue}
+                          onChange={(e) => setBatchTimeValue(Number(e.target.value))}
+                          className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg bg-white tabular-nums"
+                        />
+                        <select
+                          value={batchTimeUnit}
+                          onChange={(e) => setBatchTimeUnit(e.target.value as TimeUnit)}
+                          className="px-3 py-2 text-xs border border-slate-300 rounded-lg bg-white shrink-0"
+                        >
+                          <option value="SEGUNDOS">Segundos</option>
+                          <option value="MINUTOS">Minutos</option>
+                          <option value="HORAS">Horas</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {timeModel === 'MODELO_C' && (
+                  <div className="pt-2 border-t border-slate-200 max-w-sm">
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Tempo por Unidade Processada *
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="number"
+                        min={0}
+                        step="any"
+                        value={unitTimeValue}
+                        onChange={(e) => setUnitTimeValue(Number(e.target.value))}
+                        className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg bg-white tabular-nums"
+                      />
+                      <select
+                        value={unitTimeUnit}
+                        onChange={(e) => setUnitTimeUnit(e.target.value as TimeUnit)}
+                        className="px-3 py-2 text-xs border border-slate-300 rounded-lg bg-white shrink-0"
+                      >
+                        <option value="SEGUNDOS">Segundos</option>
+                        <option value="MINUTOS">Minutos</option>
+                        <option value="HORAS">Horas</option>
+                      </select>
+                    </div>
+                  </div>
+                )}
+
+                {/* Simulador Interativo do Tempo da Tarefa */}
+                <div className="mt-3 p-3 bg-white rounded-lg border border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4">
+                  <div className="flex items-center gap-2">
+                    <Calculator className="w-4 h-4 text-blue-600 shrink-0" />
+                    <span className="text-xs font-medium text-slate-700">Simulação para:</span>
                     <input
                       type="number"
-                      min={0}
-                      step="any"
-                      value={batchTimeValue}
-                      onChange={(e) => setBatchTimeValue(Number(e.target.value))}
-                      className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg bg-white tabular-nums"
+                      min={1}
+                      value={previewQty}
+                      onChange={(e) => setPreviewQty(Number(e.target.value))}
+                      className="w-24 px-2 py-1 text-xs border border-slate-300 rounded text-center font-bold tabular-nums"
                     />
-                    <select
-                      value={batchTimeUnit}
-                      onChange={(e) => setBatchTimeUnit(e.target.value as TimeUnit)}
-                      className="px-3 py-2 text-xs border border-slate-300 rounded-lg bg-white shrink-0"
-                    >
-                      <option value="SEGUNDOS">Segundos</option>
-                      <option value="MINUTOS">Minutos</option>
-                      <option value="HORAS">Horas</option>
-                    </select>
+                    <span className="text-xs text-slate-500">{productionUnit}</span>
+                  </div>
+                  <div className="flex items-center gap-3 text-xs">
+                    <div className="text-right">
+                      <span className="text-[10px] text-slate-400 block">Tempo Produção:</span>
+                      <span className="font-semibold text-slate-800 tabular-nums">
+                        {formatSecondsToTime(previewTimes.productionSeconds)}
+                      </span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[10px] text-slate-400 block">Tempo Total:</span>
+                      <span className="font-bold text-blue-700 tabular-nums">
+                        {formatSecondsToTime(previewTimes.totalSeconds)}
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
-            )}
+            </div>
+
+            {/* 4. CUSTOS PADRÃO POR HORA */}
+            <div className="space-y-4">
+              <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider border-b border-slate-100 pb-2">
+                4. Custos Padrão por Hora
+              </h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Custo de Mão de Obra (R$ por hora) *
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-2 text-xs text-slate-400">R$</span>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={hourlyLaborRate}
+                      onChange={(e) => setHourlyLaborRate(Number(e.target.value))}
+                      className="w-full pl-9 pr-3 py-2 text-xs border border-slate-300 rounded-lg tabular-nums"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Custo de Máquina (R$ por hora) *
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-2 text-xs text-slate-400">R$</span>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={hourlyMachineRate}
+                      onChange={(e) => setHourlyMachineRate(Number(e.target.value))}
+                      className="w-full pl-9 pr-3 py-2 text-xs border border-slate-300 rounded-lg tabular-nums"
+                    />
+                  </div>
+                  {machineId && (
+                    <span className="text-[10px] text-emerald-700 mt-1 block">
+                      Vinculado à máquina: {machine}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          </>
+        )}
 
             {timeModel === 'MODELO_C' && (
               <div className="pt-2 border-t border-slate-200 max-w-sm">

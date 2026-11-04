@@ -127,6 +127,8 @@ export interface StandardTask {
   materialApplication: 'POR_UNIDADE' | 'POR_LOTE' | 'FIXO';
   
   active: boolean;
+  deleted?: boolean; // Se true, o item está na Lixeira (soft delete)
+  deletedAt?: string; // Data e hora em que foi movido para a Lixeira
   createdAt: string;
   updatedAt: string;
 }
@@ -318,6 +320,9 @@ export interface Product {
   notes?: string;
   status: ProductStatus;
   
+  deleted?: boolean; // Se true, o orçamento está na Lixeira (soft delete)
+  deletedAt?: string; // Data e hora da exclusão para a Lixeira
+
   currentRevisionNumber: number;
   revisions: BudgetRevision[];
   

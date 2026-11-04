@@ -16,6 +16,7 @@ import {
   Coins,
   AlertCircle,
   HelpCircle,
+  CheckCircle2,
 } from 'lucide-react';
 import { StandardTask, TaskSector, SECTOR_LABELS } from '../../types';
 import { formatBRL, formatSecondsToTime } from '../../services/calculator';
@@ -28,16 +29,20 @@ interface TasksViewProps {
   onRefresh: () => void;
 }
 
-export const TasksView: React.FC<TasksViewProps> = ({ tasks, onRefresh }) => {
+export const TasksView: React.FC<TasksViewProps> = ({
+  tasks,
+  onRefresh,
+}) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSector, setSelectedSector] = useState<TaskSector | 'ALL'>('ALL');
   const [filterActiveOnly, setFilterActiveOnly] = useState(false);
+  const [successBanner, setSuccessBanner] = useState<string | null>(null);
 
   // Modais
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<StandardTask | null>(null);
 
-  // Dialog de erro de exclusão / confirmação
+  // Dialog de confirmação de exclusão definitiva
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogTitle, setDialogTitle] = useState('');
   const [dialogMessage, setDialogMessage] = useState('');
@@ -84,9 +89,9 @@ export const TasksView: React.FC<TasksViewProps> = ({ tasks, onRefresh }) => {
 
   const handleDeleteClick = async (task: StandardTask) => {
     setTaskToDelete(task.id);
-    setDialogTitle('Exclusão de Tarefa Padrão');
+    setDialogTitle('Excluir Tarefa Definitivamente');
     setDialogMessage(
-      `Deseja realmente remover permanentemente a tarefa "${task.code} - ${task.name}"?\n\nNota: Se a tarefa já tiver sido utilizada em algum produto ou histórico, o sistema impedirá a exclusão definitiva para proteger a rastreabilidade.`
+      `Tem certeza que deseja excluir permanentemente a tarefa "${task.code} - ${task.name}"?\n\nEsta operação é imediata e irreversível.`
     );
     setDialogType('danger');
     setDialogOpen(true);
@@ -95,17 +100,13 @@ export const TasksView: React.FC<TasksViewProps> = ({ tasks, onRefresh }) => {
   const handleConfirmDelete = async () => {
     if (!taskToDelete) return;
     const res = await storage.deleteTask(taskToDelete);
+    setDialogOpen(false);
+    setTaskToDelete(null);
     if (!res.success) {
-      setDialogTitle('Operação Bloqueada para Preservação de Dados');
-      setDialogMessage(
-        res.error ||
-          'Esta tarefa está vinculada ao histórico de produtos orçados. Utilize a opção "Inativar" para não afetar os cálculos anteriores.'
-      );
-      setDialogType('warning');
-      setTaskToDelete(null);
-      setDialogOpen(true);
+      setSuccessBanner(res.error || 'Erro ao excluir tarefa.');
     } else {
-      setTaskToDelete(null);
+      setSuccessBanner('Tarefa excluída permanentemente com sucesso!');
+      setTimeout(() => setSuccessBanner(null), 5000);
       onRefresh();
     }
   };
@@ -122,17 +123,36 @@ export const TasksView: React.FC<TasksViewProps> = ({ tasks, onRefresh }) => {
         <div>
           <h3 className="text-base font-bold text-[#374151]">Catálogo de Tarefas & Operações</h3>
           <p className="text-xs text-gray-500 mt-0.5">
-            Cadastre processos gráficos reutilizáveis com fórmulas de tempo (velocidade, lote ou unidade) e custos hora.
+            Cadastre processos gráficos reutilizáveis com fórmulas de tempo ou milheiro e custos hora vinculados às máquinas.
           </p>
         </div>
-        <button
-          onClick={handleCreate}
-          className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-[#01B8AA] hover:bg-[#009E91] rounded-lg shadow-sm transition-colors shrink-0"
-        >
-          <Plus className="w-4 h-4" />
-          Nova Tarefa Padrão
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+
+          <button
+            onClick={handleCreate}
+            className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-[#01B8AA] hover:bg-[#009E91] rounded-lg shadow-sm transition-colors shrink-0"
+          >
+            <Plus className="w-4 h-4" />
+            Nova Tarefa Padrão
+          </button>
+        </div>
       </div>
+
+      {/* Success Banner */}
+      {successBanner && (
+        <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 flex items-center justify-between shadow-xs">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span className="font-medium">{successBanner}</span>
+          </div>
+          <button
+            onClick={() => setSuccessBanner(null)}
+            className="text-[11px] text-emerald-700 hover:underline font-semibold"
+          >
+            Dispensar
+          </button>
+        </div>
+      )}
 
       {/* Barra de Filtros e Busca */}
       <div className="space-y-3">
@@ -387,8 +407,8 @@ export const TasksView: React.FC<TasksViewProps> = ({ tasks, onRefresh }) => {
         title={dialogTitle}
         message={dialogMessage}
         type={dialogType}
-        confirmText={taskToDelete ? 'Excluir Definitivamente' : 'Entendido'}
-        cancelText={taskToDelete ? 'Cancelar' : 'Fechar'}
+        confirmText="Mover para a Lixeira"
+        cancelText="Cancelar"
       />
     </div>
   );

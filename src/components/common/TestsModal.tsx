@@ -43,7 +43,7 @@ export const TestsModal: React.FC<TestsModalProps> = ({ isOpen, onClose }) => {
       isOpen={isOpen}
       onClose={onClose}
       title="Bateria de Testes e Validação Matemática"
-      subtitle="Validação em tempo real dos 14 cenários de cálculo, tempos, tributações, apontamento espelho, quantidade entregue e integridade"
+      subtitle="Validação em tempo real dos 15 cenários de cálculo, tempos, tributações, apontamento espelho, quantidade entregue, exclusão definitiva e integridade"
       maxWidth="3xl"
     >
       <div className="space-y-4">

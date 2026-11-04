@@ -80,6 +80,9 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
   const [deleteMatConfirmOpen, setDeleteMatConfirmOpen] = useState(false);
   const [matToDelete, setMatToDelete] = useState<string | null>(null);
 
+  // Confirmação para mover o orçamento inteiro para a Lixeira
+  const [deleteProductConfirmOpen, setDeleteProductConfirmOpen] = useState(false);
+
   // Seleção de revisão histórica para consulta
   const [selectedRevisionNumber, setSelectedRevisionNumber] = useState<number>(
     product.currentRevisionNumber || 1
@@ -354,6 +357,13 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
     onRefresh();
   };
 
+  const handleConfirmDeleteProduct = async () => {
+    await storage.deleteProduct(product.id);
+    setDeleteProductConfirmOpen(false);
+    onBack();
+    onRefresh();
+  };
+
   return (
     <div className="space-y-6">
       {/* Barra de Navegação Superior do Produto */}
@@ -397,6 +407,14 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
           >
             <Coins className="w-4 h-4" />
             Ver Comparativo Orçado x Realizado
+          </button>
+          <button
+            onClick={() => setDeleteProductConfirmOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition-colors"
+            title="Mover este orçamento para a Lixeira"
+          >
+            <Trash2 className="w-4 h-4 text-rose-600" />
+            Excluir Orçamento
           </button>
         </div>
       </div>
@@ -1269,6 +1287,18 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
         message="Deseja realmente remover esta matéria-prima do orçamento? O custo do Bloco A e o preço final serão recalculados imediatamente."
         type="danger"
         confirmText="Remover Matéria-Prima"
+      />
+
+      {/* Confirmação de Exclusão Definitiva do Orçamento */}
+      <ConfirmDialog
+        isOpen={deleteProductConfirmOpen}
+        onClose={() => setDeleteProductConfirmOpen(false)}
+        onConfirm={handleConfirmDeleteProduct}
+        title="Excluir Orçamento Definitivamente"
+        message={`Tem certeza que deseja excluir permanentemente o orçamento "${product.code} - ${product.name}"?\n\nEsta operação é imediata e irreversível. O orçamento e todos os seus apontamentos de chão de fábrica serão removidos em definitivo.`}
+        type="danger"
+        confirmText="Excluir Definitivamente"
+        cancelText="Cancelar"
       />
     </div>
   );

@@ -7,11 +7,10 @@ import React, { useState, useEffect } from 'react';
 import { Sidebar, ActiveTab } from './components/layout/Sidebar';
 import { Header } from './components/layout/Header';
 import { DashboardView } from './components/dashboard/DashboardView';
-import { TasksView } from './components/tasks/TasksView';
+import { MachinesAndTasksView } from './components/operations/MachinesAndTasksView';
 import { ProductsView } from './components/products/ProductsView';
 import { ProductionLogsView } from './components/logs/ProductionLogsView';
 import { ComparisonView } from './components/analysis/ComparisonView';
-import { MachinesView } from './components/machines/MachinesView';
 import { RawMaterialsView } from './components/materials/RawMaterialsView';
 import { BackupModal } from './components/common/BackupModal';
 import { TestsModal } from './components/common/TestsModal';
@@ -35,13 +34,21 @@ export default function App() {
 
   const loadAllData = async () => {
     try {
-      const [allMachines, allMaterials, allTasks, allProducts, allLogs] = await Promise.all([
+      // Carregamento dos dados cadastrais e operacionais
+      const [
+        allMachines,
+        allMaterials,
+        allTasks,
+        allProducts,
+        allLogs,
+      ] = await Promise.all([
         storage.getAllMachines(),
         storage.getAllMaterials(),
         storage.getAllTasks(),
         storage.getAllProducts(),
         storage.getAllLogs(),
       ]);
+
       setMachines(allMachines);
       setMaterials(allMaterials);
       setTasks(allTasks);
@@ -134,16 +141,16 @@ export default function App() {
               />
             )}
 
-            {activeTab === 'machines' && (
-              <MachinesView machines={machines} onRefresh={loadAllData} />
+            {activeTab === 'machines-tasks' && (
+              <MachinesAndTasksView
+                machines={machines}
+                tasks={tasks}
+                onRefresh={loadAllData}
+              />
             )}
 
             {activeTab === 'materials' && (
               <RawMaterialsView materials={materials} onRefresh={loadAllData} />
-            )}
-
-            {activeTab === 'tasks' && (
-              <TasksView tasks={tasks} onRefresh={loadAllData} />
             )}
 
             {activeTab === 'products' && (

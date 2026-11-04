@@ -24,17 +24,13 @@ export const Header: React.FC<HeaderProps> = ({
       title: 'Painel Geral',
       subtitle: 'Visão consolidada de orçamentos, ordens em chão de fábrica e análise de desvios',
     },
-    machines: {
-      title: 'Cadastro de Máquinas & Custo/Hora',
-      subtitle: 'Parque gráfico, custo horário padrão das máquinas e vinculação automática com as tarefas',
+    'machines-tasks': {
+      title: 'Máquinas & Tarefas Produtivas',
+      subtitle: 'Gestão unificada do parque gráfico, custos/hora de equipamentos e catálogo de tarefas parametrizadas',
     },
     materials: {
       title: 'Catálogo de Matérias-Primas (Insumos)',
       subtitle: 'Papéis, cartões, tintas, colas e chapas com custo unitário padrão por unidade de medida',
-    },
-    tasks: {
-      title: 'Cadastro de Tarefas & Operações',
-      subtitle: 'Operações produtivas reutilizáveis, parâmetros de tempo e custos padrão vinculados às máquinas',
     },
     products: {
       title: 'Produtos & Orçamentos (3 Blocos)',

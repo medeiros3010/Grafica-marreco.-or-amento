@@ -19,9 +19,8 @@ import {
 
 export type ActiveTab =
   | 'dashboard'
-  | 'machines'
+  | 'machines-tasks'
   | 'materials'
-  | 'tasks'
   | 'products'
   | 'logs'
   | 'analysis';
@@ -74,22 +73,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const catalogNavItems: { id: ActiveTab; label: string; icon: React.ReactNode; badge?: number }[] = [
     {
-      id: 'machines',
-      label: 'Máquinas & Custo/Hora',
+      id: 'machines-tasks',
+      label: 'Máquinas & Tarefas',
       icon: <Cpu className="w-4 h-4" />,
-      badge: counts?.machines,
+      badge:
+        counts?.machines !== undefined && counts?.tasks !== undefined
+          ? counts.machines + counts.tasks
+          : undefined,
     },
     {
       id: 'materials',
       label: 'Matérias-Primas (Insumos)',
       icon: <Package className="w-4 h-4" />,
       badge: counts?.materials,
-    },
-    {
-      id: 'tasks',
-      label: 'Tarefas & Operações',
-      icon: <Layers className="w-4 h-4" />,
-      badge: counts?.tasks,
     },
   ];
 
@@ -190,7 +186,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-xs font-medium text-white/80 hover:text-white hover:bg-white/10 transition-colors"
         >
           <ShieldCheck className="w-4 h-4 text-white" />
-          <span className="truncate">Bateria de Testes (14/14)</span>
+          <span className="truncate">Bateria de Testes (15/15)</span>
         </button>
 
         {/* Botão de Backup Local JSON */}

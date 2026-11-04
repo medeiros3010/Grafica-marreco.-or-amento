@@ -148,49 +148,79 @@ class StorageService {
       const storeNames = ['tasks', 'products', 'logs', 'metadata', 'machines', 'materials'];
       const tx = db.transaction(storeNames, 'readwrite');
       
-      const machineStore = tx.objectStore('machines');
-      const countMachReq = machineStore.count();
-      countMachReq.onsuccess = () => {
-        if (countMachReq.result === 0) {
-          for (const m of INITIAL_MACHINES) {
-            machineStore.put(m);
-          }
-        }
-      };
+      const metaStore = tx.objectStore('metadata');
+      const getMetaReq = metaStore.get('app_config');
 
-      const matStore = tx.objectStore('materials');
-      const countMatReq = matStore.count();
-      countMatReq.onsuccess = () => {
-        if (countMatReq.result === 0) {
-          for (const mat of INITIAL_RAW_MATERIALS) {
-            matStore.put(mat);
-          }
-        }
-      };
+      getMetaReq.onsuccess = () => {
+        const meta = getMetaReq.result as AppMetadata | undefined;
 
-      const taskStore = tx.objectStore('tasks');
-      const countReq = taskStore.count();
+        // Se já foi inicializado anteriormente, apenas sanitiza registros legados com deleted: true
+        if (meta) {
+          // Desmarca qualquer flag 'deleted' legada para garantir preservação total de tarefas
+          const taskStore = tx.objectStore('tasks');
+          const taskCursorReq = taskStore.openCursor();
+          taskCursorReq.onsuccess = (e) => {
+            const cursor = (e.target as IDBRequest<IDBCursorWithValue>).result;
+            if (cursor) {
+              const val = cursor.value;
+              if (val.deleted) {
+                val.deleted = false;
+                delete val.deletedAt;
+                cursor.update(val);
+              }
+              cursor.continue();
+            }
+          };
 
-      countReq.onsuccess = () => {
-        if (countReq.result === 0) {
-          for (const task of INITIAL_STANDARD_TASKS) {
-            taskStore.put(task);
-          }
+          // Desmarca qualquer flag 'deleted' legada em produtos
           const prodStore = tx.objectStore('products');
-          for (const prod of INITIAL_PRODUCTS) {
-            prodStore.put(prod);
-          }
-          const logStore = tx.objectStore('logs');
-          for (const log of INITIAL_PRODUCTION_LOGS) {
-            logStore.put(log);
-          }
-          const metaStore = tx.objectStore('metadata');
-          metaStore.put({
-            id: 'app_config',
-            version: DB_VERSION,
-            initializedAt: new Date().toISOString(),
-          } as AppMetadata);
+          const prodCursorReq = prodStore.openCursor();
+          prodCursorReq.onsuccess = (e) => {
+            const cursor = (e.target as IDBRequest<IDBCursorWithValue>).result;
+            if (cursor) {
+              const val = cursor.value;
+              if (val.deleted) {
+                val.deleted = false;
+                delete val.deletedAt;
+                cursor.update(val);
+              }
+              cursor.continue();
+            }
+          };
+          return;
         }
+
+        // Primeira inicialização do sistema
+        const machineStore = tx.objectStore('machines');
+        for (const m of INITIAL_MACHINES) {
+          machineStore.put(m);
+        }
+
+        const matStore = tx.objectStore('materials');
+        for (const mat of INITIAL_RAW_MATERIALS) {
+          matStore.put(mat);
+        }
+
+        const taskStore = tx.objectStore('tasks');
+        for (const task of INITIAL_STANDARD_TASKS) {
+          taskStore.put(task);
+        }
+
+        const prodStore = tx.objectStore('products');
+        for (const prod of INITIAL_PRODUCTS) {
+          prodStore.put(prod);
+        }
+
+        const logStore = tx.objectStore('logs');
+        for (const log of INITIAL_PRODUCTION_LOGS) {
+          logStore.put(log);
+        }
+
+        metaStore.put({
+          id: 'app_config',
+          version: DB_VERSION,
+          initializedAt: new Date().toISOString(),
+        } as AppMetadata);
       };
 
       tx.oncomplete = () => resolve();
@@ -386,7 +416,9 @@ class StorageService {
       const tx = db.transaction('tasks', 'readonly');
       const store = tx.objectStore('tasks');
       const request = store.getAll();
-      request.onsuccess = () => resolve(request.result || []);
+      request.onsuccess = () => {
+        resolve(request.result || []);
+      };
       request.onerror = () => reject(request.error);
     });
   }
@@ -420,29 +452,18 @@ class StorageService {
         ...task,
         updatedAt: new Date().toISOString(),
       });
-      request.onsuccess = () => resolve();
+      request.onsuccess = () => {
+        this.memTasks.set(task.id, { ...task, updatedAt: new Date().toISOString() });
+        resolve();
+      };
       request.onerror = () => reject(request.error);
     });
   }
 
+  /**
+   * Exclusão permanente e imediata de tarefa / processo
+   */
   async deleteTask(id: string): Promise<{ success: boolean; error?: string }> {
-    const products = await this.getAllProducts();
-    const isUsed = products.some((p) => {
-      const inDraft = p.draftOperations?.some((op) => op.taskId === id);
-      const inRevisions = p.revisions?.some((rev) =>
-        rev.operations?.some((op) => op.taskId === id)
-      );
-      return inDraft || inRevisions;
-    });
-
-    if (isUsed) {
-      return {
-        success: false,
-        error:
-          'Esta tarefa está vinculada ao histórico de produtos orçados. Para manter a rastreabilidade e histórico, inative a tarefa em vez de excluí-la.',
-      };
-    }
-
     if (!this.hasIndexedDB()) {
       this.initMemoryStorage();
       this.memTasks.delete(id);
@@ -454,7 +475,10 @@ class StorageService {
       const tx = db.transaction('tasks', 'readwrite');
       const store = tx.objectStore('tasks');
       const request = store.delete(id);
-      request.onsuccess = () => resolve({ success: true });
+      request.onsuccess = () => {
+        this.memTasks.delete(id);
+        resolve({ success: true });
+      };
       request.onerror = () => reject(request.error);
     });
   }
@@ -480,7 +504,9 @@ class StorageService {
       const tx = db.transaction('products', 'readonly');
       const store = tx.objectStore('products');
       const request = store.getAll();
-      request.onsuccess = () => resolve(request.result || []);
+      request.onsuccess = () => {
+        resolve(request.result || []);
+      };
       request.onerror = () => reject(request.error);
     });
   }
@@ -514,30 +540,34 @@ class StorageService {
         ...product,
         updatedAt: new Date().toISOString(),
       });
-      request.onsuccess = () => resolve();
+      request.onsuccess = () => {
+        this.memProducts.set(product.id, { ...product, updatedAt: new Date().toISOString() });
+        resolve();
+      };
       request.onerror = () => reject(request.error);
     });
   }
 
+  /**
+   * Exclusão permanente e imediata de produto / orçamento com cascata
+   * Remove em cascata registros de apontamentos (logs) e dados reais (actual_records)
+   */
   async deleteProduct(id: string): Promise<{ success: boolean; error?: string }> {
-    const logs = await this.getLogsByProductId(id);
-    const activeLogs = logs.filter((l) => !l.cancelled);
-    if (activeLogs.length > 0) {
-      return {
-        success: false,
-        error: `Não é possível excluir este produto pois existem ${activeLogs.length} apontamento(s) de produção registrados. Cancele o produto ou remova os apontamentos primeiro.`,
-      };
-    }
-
     if (!this.hasIndexedDB()) {
       this.initMemoryStorage();
       this.memProducts.delete(id);
+      for (const [logId, l] of Array.from(this.memLogs.entries())) {
+        if (l.productId === id) this.memLogs.delete(logId);
+      }
+      for (const [recId, r] of Array.from(this.memActualRecords.entries())) {
+        if (r.productId === id) this.memActualRecords.delete(recId);
+      }
       return { success: true };
     }
 
     const db = await this.getDB();
     return new Promise((resolve, reject) => {
-      const tx = db.transaction(['products', 'logs'], 'readwrite');
+      const tx = db.transaction(['products', 'logs', 'actual_records'], 'readwrite');
       const prodStore = tx.objectStore('products');
       prodStore.delete(id);
 
@@ -552,7 +582,27 @@ class StorageService {
         }
       };
 
-      tx.oncomplete = () => resolve({ success: true });
+      const actualStore = tx.objectStore('actual_records');
+      const actualIndex = actualStore.index('productId');
+      const reqActual = actualIndex.openCursor(IDBKeyRange.only(id));
+      reqActual.onsuccess = (e) => {
+        const cursor = (e.target as IDBRequest<IDBCursorWithValue>).result;
+        if (cursor) {
+          cursor.delete();
+          cursor.continue();
+        }
+      };
+
+      tx.oncomplete = () => {
+        this.memProducts.delete(id);
+        for (const [logId, l] of Array.from(this.memLogs.entries())) {
+          if (l.productId === id) this.memLogs.delete(logId);
+        }
+        for (const [recId, r] of Array.from(this.memActualRecords.entries())) {
+          if (r.productId === id) this.memActualRecords.delete(recId);
+        }
+        resolve({ success: true });
+      };
       tx.onerror = () => reject(tx.error);
     });
   }

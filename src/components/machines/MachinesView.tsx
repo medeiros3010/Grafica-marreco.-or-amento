@@ -141,7 +141,7 @@ export const MachinesView: React.FC<MachinesViewProps> = ({ machines, onRefresh 
             <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase tracking-wider text-[11px]">
               <tr>
                 <th className="py-3 px-5">Máquina / Equipamento</th>
-                <th className="py-3 px-5 text-right">Custo Hora (R$/h)</th>
+                <th className="py-3 px-5 text-right">Tipo & Valor de Precificação</th>
                 <th className="py-3 px-5">Descrição / Aplicação</th>
                 <th className="py-3 px-5 text-center">Status</th>
                 <th className="py-3 px-5 text-right">Ações</th>
@@ -179,10 +179,27 @@ export const MachinesView: React.FC<MachinesViewProps> = ({ machines, onRefresh 
                       </div>
                     </td>
 
-                    {/* Custo Hora */}
-                    <td className="py-3.5 px-5 text-right font-mono font-bold text-slate-900 tabular-nums">
-                      <span className="text-sm text-[#01B8AA]">{formatBRL(mach.custoHora)}</span>
-                      <span className="text-[11px] text-slate-400 font-normal"> / hora</span>
+                    {/* Tipo & Valor de Precificação */}
+                    <td className="py-3.5 px-5 text-right font-mono tabular-nums">
+                      {mach.tipoCobranca === 'MILHEIRO' ? (
+                        <div>
+                          <span className="text-sm font-bold text-amber-600 block">
+                            {formatBRL(mach.custoMilheiro || 0)}
+                          </span>
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-sans font-semibold bg-amber-50 text-amber-700 border border-amber-200 mt-0.5">
+                            Custo por Milheiro
+                          </span>
+                        </div>
+                      ) : (
+                        <div>
+                          <span className="text-sm font-bold text-[#01B8AA] block">
+                            {formatBRL(mach.custoHora)}
+                          </span>
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-sans font-semibold bg-teal-50 text-[#01B8AA] border border-[#01B8AA]/30 mt-0.5">
+                            Custo por Hora
+                          </span>
+                        </div>
+                      )}
                     </td>
 
                     {/* Descrição */}

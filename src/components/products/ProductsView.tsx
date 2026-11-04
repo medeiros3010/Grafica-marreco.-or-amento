@@ -26,6 +26,7 @@ import {
   Layers,
   Clock,
   Coins,
+  CheckCircle2,
 } from 'lucide-react';
 
 interface ProductsViewProps {
@@ -46,12 +47,13 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<ProductStatus | 'ALL'>('ALL');
+  const [successBanner, setSuccessBanner] = useState<string | null>(null);
 
   // Modal para criar/editar dados do produto
   const [isFormModalOpen, setIsFormModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
 
-  // Confirmação de exclusão
+  // Confirmação de exclusão definitiva
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [productToDelete, setProductToDelete] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -131,6 +133,9 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
     } else {
       setDeleteConfirmOpen(false);
       setProductToDelete(null);
+      setDeleteError(null);
+      setSuccessBanner('Orçamento e apontamentos vinculados excluídos permanentemente!');
+      setTimeout(() => setSuccessBanner(null), 5000);
       onRefresh();
     }
   };
@@ -147,14 +152,32 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
             Cadastre os produtos gráficos, monte a sequência de operações e aprove versões congeladas de orçamento.
           </p>
         </div>
-        <button
-          onClick={handleCreateProduct}
-          className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-[#01B8AA] hover:bg-[#009E91] rounded-lg shadow-sm transition-colors shrink-0"
-        >
-          <Plus className="w-4 h-4" />
-          Novo Produto / Orçamento
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleCreateProduct}
+            className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-[#01B8AA] hover:bg-[#009E91] rounded-lg shadow-sm transition-colors shrink-0"
+          >
+            <Plus className="w-4 h-4" />
+            Novo Produto / Orçamento
+          </button>
+        </div>
       </div>
+
+      {/* Success Banner */}
+      {successBanner && (
+        <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 flex items-center justify-between shadow-xs">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span className="font-medium">{successBanner}</span>
+          </div>
+          <button
+            onClick={() => setSuccessBanner(null)}
+            className="text-[11px] text-emerald-700 hover:underline font-semibold"
+          >
+            Dispensar
+          </button>
+        </div>
+      )}
 
       {/* Filtros e Busca */}
       <div className="space-y-3">
@@ -325,7 +348,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
         initialProduct={editingProduct}
       />
 
-      {/* Confirmação de Exclusão */}
+      {/* Confirmação de Exclusão Definitiva */}
       <ConfirmDialog
         isOpen={deleteConfirmOpen}
         onClose={() => {
@@ -334,13 +357,15 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
           setDeleteError(null);
         }}
         onConfirm={handleConfirmDelete}
-        title="Excluir Produto / Orçamento"
+        title="Excluir Orçamento Definitivamente"
         message={
           deleteError ||
-          'Deseja realmente excluir este produto? Se já houver apontamentos de produção registrados, a exclusão será bloqueada para preservar o histórico.'
+          `Tem certeza que deseja excluir permanentemente o orçamento "${
+            products.find((p) => p.id === productToDelete)?.name || 'selecionado'
+          }"?\n\nEsta ação excluirá o orçamento e todos os seus apontamentos de chão de fábrica em cascata. O registro não poderá ser recuperado.`
         }
         type={deleteError ? 'warning' : 'danger'}
-        confirmText={deleteError ? 'Entendido' : 'Confirmar Exclusão'}
+        confirmText={deleteError ? 'Entendido' : 'Excluir Definitivamente'}
         cancelText={deleteError ? 'Fechar' : 'Cancelar'}
       />
     </div>
