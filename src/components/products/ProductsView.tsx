@@ -7,10 +7,11 @@ import React, { useState } from 'react';
 import {
   Product,
   StandardTask,
+  Machine,
   ProductStatus,
   PRODUCT_STATUS_LABELS,
 } from '../../types';
-import { formatBRL, formatBRLUnit } from '../../services/calculator';
+import { formatBRL, formatBRLUnit, getProductProcesses } from '../../services/calculator';
 import { ProductStatusBadge } from '../common/Badge';
 import { ProductFormModal } from './ProductFormModal';
 import { ProductDetailView } from './ProductDetailView';
@@ -32,6 +33,7 @@ import {
 interface ProductsViewProps {
   products: Product[];
   standardTasks: StandardTask[];
+  machines?: Machine[];
   onRefresh: () => void;
   onGoToLogs: (productId: string) => void;
   onGoToAnalysis: (productId: string) => void;
@@ -40,6 +42,7 @@ interface ProductsViewProps {
 export const ProductsView: React.FC<ProductsViewProps> = ({
   products,
   standardTasks,
+  machines = [],
   onRefresh,
   onGoToLogs,
   onGoToAnalysis,
@@ -65,6 +68,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
       <ProductDetailView
         product={selectedProduct}
         standardTasks={standardTasks}
+        machines={machines}
         onBack={() => setSelectedProductId(null)}
         onRefresh={onRefresh}
         onGoToLogs={onGoToLogs}
@@ -109,6 +113,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
         currentRevisionNumber: 0,
         revisions: [],
         draftOperations: [],
+        processos: [],
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
@@ -241,10 +246,15 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
         ) : (
           filteredProducts.map((p) => {
             const activeRev = p.activeRevision;
-            const opsCount = activeRev ? activeRev.operations.length : p.draftOperations.length;
+            const processos = activeRev?.processos && activeRev.processos.length > 0
+              ? activeRev.processos
+              : getProductProcesses(p);
+            const opsCount = processos.length;
+            const subtotalProcessos = processos.reduce((sum, pr) => sum + (pr.custoTotal || 0), 0);
+            const subtotalMateriais = (p.materials || []).reduce((sum, m) => sum + (m.totalCusto || 0), 0);
             const totalCost = activeRev
               ? activeRev.totalCost
-              : p.draftOperations.reduce((sum, op) => sum + op.plannedTotalCost, 0);
+              : (subtotalProcessos + subtotalMateriais);
             const unitCost = p.quantity > 0 ? totalCost / p.quantity : 0;
 
             return (
@@ -283,10 +293,10 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                     </div>
                     <div>
                       <span className="text-[10px] text-slate-400 block uppercase tracking-wider">
-                        Operações
+                        Itens Produtivos
                       </span>
                       <span className="font-bold text-slate-800 tabular-nums">
-                        {opsCount} {opsCount === 1 ? 'etapa' : 'etapas'}
+                        {opsCount} {opsCount === 1 ? 'item' : 'itens'}
                       </span>
                     </div>
                     <div>

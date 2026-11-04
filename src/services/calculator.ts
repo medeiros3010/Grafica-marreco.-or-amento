@@ -16,6 +16,8 @@ import {
   ProductPricing,
   DEFAULT_PRODUCT_PRICING,
   ProductMaterialItem,
+  ProductProcessItem,
+  BillingUnitType,
 } from '../types';
 
 // ==========================================
@@ -245,6 +247,109 @@ export function calculateOperationCosts(params: {
     totalCost,
     unitCost,
   };
+}
+
+// ==========================================
+// CÁLCULO DE MÁQUINAS & TAREFAS PRODUTIVAS (NOVA ESTRUTURA OFICIAL)
+// ==========================================
+
+/**
+ * Calcula o custo orçado de um item de Máquina ou Tarefa Produtiva:
+ * - Custo por Hora: tempo previsto de utilização (horas) * custo cadastrado por hora
+ * - Custo por Milheiro: (quantidade prevista de produção / 1000) * custo por milheiro
+ */
+export function calculateProcessItemCost(item: {
+  tipoCobranca: BillingUnitType;
+  tempoPrevistoHoras?: number;
+  custoHora?: number;
+  quantidadeProducao?: number;
+  custoMilheiro?: number;
+}): number {
+  if (item.tipoCobranca === 'MILHEIRO') {
+    const qty = Math.max(0, Number(item.quantidadeProducao) || 0);
+    const rate = Math.max(0, Number(item.custoMilheiro) || 0);
+    return Number(((qty / 1000) * rate).toFixed(2));
+  } else {
+    // HORA
+    const hours = Math.max(0, Number(item.tempoPrevistoHoras) || 0);
+    const rate = Math.max(0, Number(item.custoHora) || 0);
+    return Number((hours * rate).toFixed(2));
+  }
+}
+
+/**
+ * Calcula o custo realizado de um item de Máquina ou Tarefa Produtiva:
+ */
+export function calculateProcessItemActualCost(item: {
+  tipoCobranca: BillingUnitType;
+  tempoPrevistoHoras?: number;
+  custoHora?: number;
+  quantidadeProducao?: number;
+  custoMilheiro?: number;
+  tempoRealHoras?: number;
+  custoHoraReal?: number;
+  quantidadeReal?: number;
+  custoMilheiroReal?: number;
+  custoTotalReal?: number;
+}): number {
+  if (item.custoTotalReal !== undefined) {
+    return Number(item.custoTotalReal.toFixed(2));
+  }
+  if (item.tipoCobranca === 'MILHEIRO') {
+    const qty = item.quantidadeReal !== undefined ? Number(item.quantidadeReal) : (Number(item.quantidadeProducao) || 0);
+    const rate = item.custoMilheiroReal !== undefined ? Number(item.custoMilheiroReal) : (Number(item.custoMilheiro) || 0);
+    return Number(((Math.max(0, qty) / 1000) * Math.max(0, rate)).toFixed(2));
+  } else {
+    const hours = item.tempoRealHoras !== undefined ? Number(item.tempoRealHoras) : (Number(item.tempoPrevistoHoras) || 0);
+    const rate = item.custoHoraReal !== undefined ? Number(item.custoHoraReal) : (Number(item.custoHora) || 0);
+    return Number((Math.max(0, hours) * Math.max(0, rate)).toFixed(2));
+  }
+}
+
+/**
+ * Retorna os itens de Máquinas & Tarefas Produtivas do produto.
+ * Se o produto ainda não tiver sido migrado, converte automaticamente
+ * a estrutura antiga para a nova para assegurar integridade histórica.
+ */
+export function getProductProcesses(product: Product): ProductProcessItem[] {
+  if (product.processos && product.processos.length > 0) {
+    return product.processos;
+  }
+  if (product.activeRevision?.processos && product.activeRevision.processos.length > 0) {
+    return product.activeRevision.processos;
+  }
+  // Migração transparente de operações legadas
+  const legacyOps = product.activeRevision?.operations?.length
+    ? product.activeRevision.operations
+    : product.draftOperations || [];
+  if (legacyOps.length > 0) {
+    return legacyOps.map((op, idx) => {
+      const isMilheiro = op.billingUnit === 'MILHEIRO';
+      const tempoHoras = Number(((op.plannedTotalSeconds || 0) / 3600).toFixed(2));
+      const custoHora = Number(((op.hourlyMachineRate || 0) + (op.hourlyLaborRate || 0)).toFixed(2));
+      const custoMilheiro = op.costPerThousand || 60;
+      const qtdProducao = op.plannedQuantity || product.quantity;
+      const custoTotal = isMilheiro
+        ? Number(((qtdProducao / 1000) * custoMilheiro).toFixed(2))
+        : Number((tempoHoras * custoHora).toFixed(2));
+
+      return {
+        id: `proc_${op.id}`,
+        order: idx + 1,
+        tipoItem: op.machine ? 'MAQUINA' : 'TAREFA',
+        origemId: op.taskId,
+        nome: op.name,
+        descricao: op.machine ? `Máquina: ${op.machine}` : undefined,
+        tipoCobranca: isMilheiro ? 'MILHEIRO' : 'HORA',
+        tempoPrevistoHoras: tempoHoras,
+        custoHora: custoHora || 120,
+        quantidadeProducao: qtdProducao,
+        custoMilheiro: custoMilheiro || 60,
+        custoTotal,
+      };
+    });
+  }
+  return [];
 }
 
 // ==========================================
@@ -848,16 +953,54 @@ export function computeProductComparisonSummary(
     blockAMaterialsActualCost += matActual || 0;
   }
 
-  // Se houver matérias-primas cadastradas no Bloco A, elas somam com os materiais das operações
-  const totalPlannedMaterials = Number((plannedMaterialCost + blockAMaterialsPlannedCost).toFixed(2));
-  const totalActualMaterials = Number((actualMaterialCost + (blockAMaterialsPlannedCost > 0 ? blockAMaterialsActualCost : 0)).toFixed(2));
+  // ==========================================
+  // BLOCO A: MÁQUINAS & TAREFAS PRODUTIVAS (NOVA ESTRUTURA OFICIAL)
+  // ==========================================
+  const rawProcesses = getProductProcesses(product);
+  let plannedProcessosCost = 0;
+  let actualProcessosCost = 0;
 
-  const plannedTasksCost = Number((plannedLaborCost + plannedMachineCost).toFixed(2));
-  const actualTasksCost = Number((actualLaborCost + actualMachineCost).toFixed(2));
+  const comparedProcessos: ProductProcessItem[] = rawProcesses.map((proc, idx) => {
+    const plannedCost = calculateProcessItemCost(proc);
+    plannedProcessosCost += plannedCost;
 
-  // Custo Total Orçado e Realizado considerando Matéria Prima + Tarefas (Bloco A)
-  const finalPlannedTotalCost = Number((totalPlannedMaterials + plannedTasksCost).toFixed(2));
-  const finalActualTotalCost = Number((totalActualMaterials + actualTasksCost).toFixed(2));
+    let matchActual = proc;
+    if (actualRecord?.processos) {
+      const found = actualRecord.processos.find(
+        (ap) => ap.id === proc.id || ap.nome.toLowerCase() === proc.nome.toLowerCase()
+      );
+      if (found) matchActual = found;
+    }
+
+    const actualCost = calculateProcessItemActualCost(matchActual);
+    actualProcessosCost += actualCost;
+
+    return {
+      ...proc,
+      order: idx + 1,
+      custoTotal: plannedCost,
+      tempoRealHoras: matchActual.tempoRealHoras ?? proc.tempoPrevistoHoras,
+      custoHoraReal: matchActual.custoHoraReal ?? proc.custoHora,
+      quantidadeReal: matchActual.quantidadeReal ?? proc.quantidadeProducao,
+      custoMilheiroReal: matchActual.custoMilheiroReal ?? proc.custoMilheiro,
+      custoTotalReal: actualCost,
+      status: matchActual.status || 'CONCLUIDA',
+      realizadoNotas: matchActual.realizadoNotas,
+    };
+  });
+
+  plannedProcessosCost = Number(plannedProcessosCost.toFixed(2));
+  actualProcessosCost = Number(actualProcessosCost.toFixed(2));
+
+  // Custos totais orçados e realizados baseados EXCLUSIVAMENTE em Matérias-Primas + Máquinas & Tarefas Produtivas
+  const totalPlannedMaterials = Number(blockAMaterialsPlannedCost.toFixed(2));
+  const totalActualMaterials = Number(blockAMaterialsActualCost.toFixed(2));
+
+  const plannedTasksCost = plannedProcessosCost;
+  const actualTasksCost = actualProcessosCost;
+
+  const finalPlannedTotalCost = Number((totalPlannedMaterials + plannedProcessosCost).toFixed(2));
+  const finalActualTotalCost = Number((totalActualMaterials + actualProcessosCost).toFixed(2));
 
   // Diferença financeira e percentual
   const financialDifference = Number((finalActualTotalCost - finalPlannedTotalCost).toFixed(2));
@@ -1025,9 +1168,12 @@ export function computeProductComparisonSummary(
     profitMarginShrunk,
     finalTotal: plannedPricing.finalTotal,
 
+    plannedProcessosCost,
+    actualProcessosCost,
+    processos: comparedProcessos,
     operations: comparedOps,
     materials: productMaterials,
-    totalOperations: comparedOps.length,
+    totalOperations: comparedProcessos.length || comparedOps.length,
     completedOperations,
     inProgressOperations,
     pendingOperations,

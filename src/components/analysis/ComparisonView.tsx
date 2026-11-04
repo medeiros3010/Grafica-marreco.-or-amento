@@ -8,6 +8,7 @@ import {
   Product,
   ProductionLog,
   ProductMaterialItem,
+  ProductProcessItem,
 } from '../../types';
 import {
   computeProductComparisonSummary,
@@ -21,6 +22,7 @@ import { OperationStatusBadge, ProductStatusBadge } from '../common/Badge';
 import { ComparisonCharts } from './ComparisonCharts';
 import { ProductFinalReport } from './ProductFinalReport';
 import { ActualMaterialModal } from './ActualMaterialModal';
+import { ActualProcessModal } from './ActualProcessModal';
 import {
   BarChart3,
   TrendingUp,
@@ -41,6 +43,8 @@ import {
   DollarSign,
   Receipt,
   Info,
+  Cpu,
+  Wrench,
 } from 'lucide-react';
 
 type SortOption = 'EXCESS_COST' | 'VARIANCE_PCT' | 'EXCESS_TIME' | 'ACTUAL_COST' | 'ORDER';
@@ -70,6 +74,10 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
   // Modal para apontamento real de matéria-prima
   const [isMatModalOpen, setIsMatModalOpen] = useState(false);
   const [selectedMaterialForEdit, setSelectedMaterialForEdit] = useState<ProductMaterialItem | null>(null);
+
+  // Modal para apontamento real de processo (Máquinas & Tarefas)
+  const [isProcModalOpen, setIsProcModalOpen] = useState(false);
+  const [selectedProcessForEdit, setSelectedProcessForEdit] = useState<ProductProcessItem | null>(null);
 
   if (!currentProduct) {
     return (
@@ -122,6 +130,70 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
     }
 
     // Dispara recarregamento
+    onSelectProduct(currentProduct.id);
+  };
+
+  // Salvar apontamento real de processo (Máquinas & Tarefas)
+  const handleSaveActualProcess = async (updatedItem: ProductProcessItem) => {
+    const isRevision = !!currentProduct.activeRevision;
+    let list = isRevision
+      ? [...(currentProduct.activeRevision?.processos || currentProduct.processos || [])]
+      : [...(currentProduct.processos || [])];
+
+    if (list.length === 0) {
+      list = [...summary.processos];
+    }
+
+    const idx = list.findIndex((p) => p.id === updatedItem.id || p.nome === updatedItem.nome);
+    if (idx >= 0) {
+      list[idx] = updatedItem;
+    } else {
+      list.push(updatedItem);
+    }
+
+    // Sincroniza também no actualRecord se existir
+    let updatedActualRecord = currentProduct.actualRecord;
+    if (updatedActualRecord) {
+      const actProcessos = [...(updatedActualRecord.processos || [])];
+      const actIdx = actProcessos.findIndex((p) => p.id === updatedItem.id || p.nome === updatedItem.nome);
+      if (actIdx >= 0) {
+        actProcessos[actIdx] = updatedItem;
+      } else {
+        actProcessos.push(updatedItem);
+      }
+      updatedActualRecord = {
+        ...updatedActualRecord,
+        processos: actProcessos,
+        totalProcessosReal: actProcessos.reduce((sum, p) => sum + (p.custoTotalReal || 0), 0),
+        updatedAt: new Date().toISOString(),
+      };
+      await storage.saveActualRecord(updatedActualRecord);
+    }
+
+    if (isRevision && currentProduct.activeRevision) {
+      const updatedRev = {
+        ...currentProduct.activeRevision,
+        processos: list,
+      };
+      const updatedProduct: Product = {
+        ...currentProduct,
+        processos: list,
+        activeRevision: updatedRev,
+        actualRecord: updatedActualRecord,
+        revisions: currentProduct.revisions.map((r) =>
+          r.revisionNumber === updatedRev.revisionNumber ? updatedRev : r
+        ),
+      };
+      await storage.saveProduct(updatedProduct);
+    } else {
+      const updatedProduct: Product = {
+        ...currentProduct,
+        processos: list,
+        actualRecord: updatedActualRecord,
+      };
+      await storage.saveProduct(updatedProduct);
+    }
+
     onSelectProduct(currentProduct.id);
   };
 
@@ -763,28 +835,22 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
           <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-xs">
             <div className="px-6 py-4 border-b border-gray-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-gray-50/50">
               <div>
-                <h3 className="text-sm font-bold text-[#374151]">
-                  Comparativo Detalhado por Tarefa / Operação
-                </h3>
+                <div className="flex items-center gap-2">
+                  <Cpu className="w-4 h-4 text-[#01B8AA]" />
+                  <h3 className="text-sm font-bold text-[#374151]">
+                    Máquinas & Tarefas Produtivas (Orçado x Realizado)
+                  </h3>
+                </div>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  Análise cruzada de tempos, custos de mão de obra e máquina e motivos de desvios.
+                  Análise comparativa detalhada de custos por hora e milheiro executados no chão de fábrica.
                 </p>
               </div>
 
-              {/* Controles de Ordenação */}
+              {/* Indicador de itens */}
               <div className="flex items-center gap-2 text-xs">
-                <span className="text-gray-500 font-medium whitespace-nowrap">Ordenar por:</span>
-                <select
-                  value={sortOption}
-                  onChange={(e) => setSortOption(e.target.value as SortOption)}
-                  className="px-3 py-1.5 text-xs font-semibold border border-gray-300 rounded-lg bg-white text-[#374151] focus:outline-none focus:ring-2 focus:ring-[#01B8AA]"
-                >
-                  <option value="EXCESS_COST">Maior Custo Excedente (R$)</option>
-                  <option value="VARIANCE_PCT">Maior Variação Percentual (%)</option>
-                  <option value="EXCESS_TIME">Maior Excesso de Tempo (Horas)</option>
-                  <option value="ACTUAL_COST">Maior Custo Realizado Acumulado</option>
-                  <option value="ORDER">Sequência Original da Produção</option>
-                </select>
+                <span className="font-semibold text-slate-600 bg-white border border-gray-200 px-2.5 py-1 rounded-lg">
+                  {summary.processos.length} {summary.processos.length === 1 ? 'item vinculado' : 'itens vinculados'}
+                </span>
               </div>
             </div>
 
@@ -792,266 +858,194 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
               <table className="w-full text-left text-xs text-[#374151]">
                 <thead className="bg-gray-50 border-b border-gray-200 text-gray-500 font-semibold uppercase tracking-wider text-[11px]">
                   <tr>
-                    <th className="py-3 px-4">Operação</th>
-                    <th className="py-3 px-4 text-center">Status</th>
-                    <th className="py-3 px-4 text-right">Qtd. Orçada x Real</th>
-                    <th className="py-3 px-4 text-right">Tempo Previsto</th>
-                    <th className="py-3 px-4 text-right">Tempo Real</th>
-                    <th className="py-3 px-4 text-right">Dif. Tempo</th>
-                    <th className="py-3 px-4 text-right">Custo Orçado</th>
-                    <th className="py-3 px-4 text-right">Custo Real</th>
-                    <th className="py-3 px-4 text-right">Dif. Financeira</th>
+                    <th className="py-3 px-4 w-12 text-center">#</th>
+                    <th className="py-3 px-4">Tipo</th>
+                    <th className="py-3 px-4">Máquina / Tarefa</th>
+                    <th className="py-3 px-4">Cobrança</th>
+                    <th className="py-3 px-4 text-right">Orçado</th>
+                    <th className="py-3 px-4 text-right">Realizado</th>
+                    <th className="py-3 px-4 text-right">Diferença (R$)</th>
                     <th className="py-3 px-4 text-right">Variação %</th>
                     <th className="py-3 px-4 text-center">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {sortedOperations.map((op) => {
-                    const isExpanded = expandedOpId === op.operationId;
-                    const isOverBudget = op.financialDifference > 0;
-                    const isUnderBudget = op.financialDifference < 0 && !op.isPending;
+                  {summary.processos.length === 0 ? (
+                    <tr>
+                      <td colSpan={9} className="py-8 text-center text-xs text-gray-400">
+                        Nenhuma máquina ou tarefa vinculada neste orçamento.
+                      </td>
+                    </tr>
+                  ) : (
+                    summary.processos.map((proc, pIdx) => {
+                      const isHora = proc.tipoCobranca === 'HORA';
+                      const orçadoCost = proc.custoTotal || 0;
+                      const realCost = proc.custoTotalReal ?? orçadoCost;
+                      const diff = Number((realCost - orçadoCost).toFixed(2));
+                      const isOverBudget = diff > 0;
+                      const isUnderBudget = diff < 0;
+                      const varPct = orçadoCost > 0 ? (diff / orçadoCost) * 100 : 0;
 
-                    return (
-                      <React.Fragment key={op.operationId}>
+                      return (
                         <tr
-                          className={`hover:bg-teal-50/20 even:bg-slate-50/40 transition-colors ${
-                            isExpanded ? 'bg-teal-50/30' : ''
-                          }`}
+                          key={proc.id || `proc_comp_${pIdx}`}
+                          className="hover:bg-teal-50/20 even:bg-slate-50/40 transition-colors"
                         >
-                          {/* Nome da Tarefa */}
+                          {/* Ordem */}
+                          <td className="py-3.5 px-4 text-center font-mono font-bold text-gray-400">
+                            #{proc.order || pIdx + 1}
+                          </td>
+
+                          {/* Tipo: Máquina / Tarefa */}
                           <td className="py-3.5 px-4">
-                            <div className="font-mono font-bold text-gray-900">{op.code}</div>
-                            <div className="font-semibold text-gray-800">{op.name}</div>
-                            <div className="text-[11px] text-gray-500 mt-0.5">
-                              {op.machine || 'Sem máquina'}
-                            </div>
+                            <span
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                                proc.tipoItem === 'MAQUINA'
+                                  ? 'bg-teal-50 text-teal-800 border border-teal-200'
+                                  : 'bg-indigo-50 text-indigo-800 border border-indigo-200'
+                              }`}
+                            >
+                              {proc.tipoItem === 'MAQUINA' ? (
+                                <Cpu className="w-3 h-3 text-teal-600" />
+                              ) : (
+                                <Wrench className="w-3 h-3 text-indigo-600" />
+                              )}
+                              <span>{proc.tipoItem === 'MAQUINA' ? 'Máquina' : 'Tarefa'}</span>
+                            </span>
                           </td>
 
-                          {/* Status */}
-                          <td className="py-3.5 px-4 text-center">
-                            <OperationStatusBadge status={op.status} isPending={op.isPending} />
-                          </td>
-
-                          {/* Quantidades */}
-                          <td className="py-3.5 px-4 text-right font-mono tabular-nums">
-                            <div>
-                              <strong className="text-gray-900">
-                                {op.isPending ? '0' : op.actualQuantityProcessed.toLocaleString('pt-BR')}
-                              </strong>
-                              <span className="text-gray-400"> / {op.plannedQuantity.toLocaleString('pt-BR')}</span>
-                            </div>
-                            {!op.isPending && op.quantityDifference !== 0 && (
-                              <div
-                                className={`text-[10px] font-semibold ${
-                                  op.quantityDifference > 0 ? 'text-blue-700' : 'text-amber-700'
-                                }`}
-                              >
-                                {op.quantityDifference > 0 ? `+${op.quantityDifference}` : op.quantityDifference}{' '}
-                                ({formatPercent(op.quantityDifferencePercent)})
+                          {/* Nome e Descrição */}
+                          <td className="py-3.5 px-4">
+                            <div className="font-bold text-gray-900">{proc.nome}</div>
+                            {proc.descricao && (
+                              <div className="text-[11px] text-gray-500 line-clamp-1 mt-0.5">
+                                {proc.descricao}
+                              </div>
+                            )}
+                            {proc.realizadoNotas && (
+                              <div className="text-[10px] text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 mt-1 inline-block">
+                                Obs: {proc.realizadoNotas}
                               </div>
                             )}
                           </td>
 
-                          {/* Tempos */}
-                          <td className="py-3.5 px-4 text-right font-mono tabular-nums text-gray-600">
-                            {formatSecondsToTime(op.plannedTotalSeconds)}
-                          </td>
-                          <td className="py-3.5 px-4 text-right font-mono tabular-nums font-semibold text-gray-900">
-                            {op.isPending ? '—' : formatSecondsToTime(op.actualTotalSeconds)}
-                          </td>
-                          <td className="py-3.5 px-4 text-right font-mono tabular-nums">
-                            {op.isPending ? (
-                              <span className="text-gray-400">Pendente</span>
-                            ) : (
-                              <span
-                                className={`font-semibold ${
-                                  op.timeDifferenceSeconds > 0
-                                    ? 'text-[#EF4444]'
-                                    : op.timeDifferenceSeconds < 0
-                                    ? 'text-[#10B981]'
-                                    : 'text-gray-600'
-                                }`}
-                              >
-                                {op.timeDifferenceSeconds > 0
-                                  ? `+${formatSecondsToTime(op.timeDifferenceSeconds)}`
-                                  : formatSecondsToTime(op.timeDifferenceSeconds)}
-                              </span>
-                            )}
+                          {/* Tipo de Cobrança */}
+                          <td className="py-3.5 px-4">
+                            <span className="inline-flex items-center gap-1 font-mono text-[11px] font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                              {isHora ? <Clock className="w-3 h-3 text-slate-500" /> : <Coins className="w-3 h-3 text-slate-500" />}
+                              <span>{isHora ? 'Por Hora' : 'Por Milheiro'}</span>
+                            </span>
                           </td>
 
-                          {/* Custos Financeiros */}
-                          <td className="py-3.5 px-4 text-right font-mono tabular-nums text-gray-700">
-                            {formatBRL(op.plannedTotalCost)}
+                          {/* Orçado */}
+                          <td className="py-3.5 px-4 text-right font-mono tabular-nums">
+                            <div className="font-bold text-gray-900">{formatBRL(orçadoCost)}</div>
+                            <div className="text-[11px] text-gray-500">
+                              {isHora
+                                ? `${proc.tempoPrevistoHoras.toFixed(2)}h @ ${formatBRL(proc.custoHora)}/h`
+                                : `${proc.quantidadeProducao.toLocaleString('pt-BR')} un @ ${formatBRL(proc.custoMilheiro)}/mil`}
+                            </div>
                           </td>
-                          <td className="py-3.5 px-4 text-right font-mono tabular-nums font-bold text-gray-900">
-                            {op.isPending ? (
-                              <span className="text-gray-400 font-normal italic">Pendente</span>
-                            ) : (
-                              formatBRL(op.actualTotalCost)
-                            )}
+
+                          {/* Realizado */}
+                          <td className="py-3.5 px-4 text-right font-mono tabular-nums">
+                            <div className="font-bold text-[#00897B]">{formatBRL(realCost)}</div>
+                            <div className="text-[11px] text-gray-500">
+                              {isHora
+                                ? `${(proc.tempoRealHoras ?? proc.tempoPrevistoHoras).toFixed(2)}h @ ${formatBRL(proc.custoHoraReal ?? proc.custoHora)}/h`
+                                : `${(proc.quantidadeReal ?? proc.quantidadeProducao).toLocaleString('pt-BR')} un @ ${formatBRL(proc.custoMilheiroReal ?? proc.custoMilheiro)}/mil`}
+                            </div>
                           </td>
 
                           {/* Diferença Financeira */}
                           <td className="py-3.5 px-4 text-right font-mono tabular-nums font-bold">
-                            {op.isPending ? (
-                              <span className="text-gray-400 font-normal">—</span>
-                            ) : (
-                              <span
-                                className={
-                                  isOverBudget
-                                    ? 'text-[#EF4444]'
-                                    : isUnderBudget
-                                    ? 'text-[#10B981]'
-                                    : 'text-gray-700'
-                                }
-                              >
-                                {isOverBudget
-                                  ? `+${formatBRL(op.financialDifference)}`
-                                  : formatBRL(op.financialDifference)}
-                              </span>
-                            )}
+                            <span
+                              className={
+                                isOverBudget
+                                  ? 'text-[#EF4444]'
+                                  : isUnderBudget
+                                  ? 'text-[#10B981]'
+                                  : 'text-gray-700'
+                              }
+                            >
+                              {diff > 0 ? `+${formatBRL(diff)}` : diff < 0 ? formatBRL(diff) : 'R$ 0,00'}
+                            </span>
                           </td>
 
                           {/* Variação Percentual */}
-                          <td className="py-3.5 px-4 text-right font-mono tabular-nums">
-                            {op.isPending ? (
-                              <span className="text-gray-400">N/A</span>
-                            ) : (
-                              <span
-                                className={`font-bold ${
-                                  isOverBudget
-                                    ? 'text-[#EF4444]'
-                                    : isUnderBudget
-                                    ? 'text-[#10B981]'
-                                    : 'text-gray-600'
-                                }`}
-                              >
-                                {formatPercent(op.financialVariancePercent)}
-                              </span>
-                            )}
+                          <td className="py-3.5 px-4 text-right font-mono tabular-nums font-semibold">
+                            <span
+                              className={
+                                isOverBudget
+                                  ? 'text-[#EF4444]'
+                                  : isUnderBudget
+                                  ? 'text-[#10B981]'
+                                  : 'text-gray-500'
+                              }
+                            >
+                              {varPct !== 0 ? formatPercent(varPct) : '0,00%'}
+                            </span>
                           </td>
 
-                          {/* Ações / Expandir */}
+                          {/* Ações / Apontar Real */}
                           <td className="py-3.5 px-4 text-center">
                             <button
-                              onClick={() => setExpandedOpId(isExpanded ? null : op.operationId)}
-                              className="p-1.5 text-gray-400 hover:text-[#01B8AA] hover:bg-[#01B8AA]/10 rounded-lg transition-colors"
-                              title="Expandir Composição e Ocorrências"
+                              onClick={() => {
+                                setSelectedProcessForEdit(proc);
+                                setIsProcModalOpen(true);
+                              }}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-[#00897B] bg-[#01B8AA]/10 hover:bg-[#01B8AA]/20 rounded-lg transition-colors"
+                              title="Apontar valor real deste processo produtivo"
                             >
-                              {isExpanded ? (
-                                <ChevronUp className="w-4 h-4" />
-                              ) : (
-                                <ChevronDown className="w-4 h-4" />
-                              )}
+                              <Edit2 className="w-3.5 h-3.5" />
+                              <span>Apontar</span>
                             </button>
                           </td>
                         </tr>
-
-                        {/* Linha Expandida de Análise Detalhada */}
-                        {isExpanded && (
-                          <tr className="bg-gray-50/80 border-b border-gray-200">
-                            <td colSpan={11} className="p-5">
-                              <div className="space-y-4">
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
-                                  {/* Mão de Obra Detalhada */}
-                                  <div className="p-3 bg-white rounded-lg border border-gray-200">
-                                    <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block mb-1">
-                                      Mão de Obra
-                                    </span>
-                                    <div className="flex justify-between py-1 border-b border-gray-100">
-                                      <span className="text-gray-500">Horas:</span>
-                                      <span className="font-mono font-medium tabular-nums">
-                                        {op.actualLaborHours.toFixed(2)}h / {op.plannedLaborHours.toFixed(2)}h
-                                      </span>
-                                    </div>
-                                    <div className="flex justify-between py-1 border-b border-gray-100">
-                                      <span className="text-gray-500">Custo MO:</span>
-                                      <span className="font-mono font-bold tabular-nums">
-                                        {formatBRL(op.actualLaborCost)} (prev: {formatBRL(op.plannedLaborCost)})
-                                      </span>
-                                    </div>
-                                    <div className="flex justify-between pt-1 font-semibold">
-                                      <span className="text-gray-600">Variação MO:</span>
-                                      <span className={`font-mono tabular-nums ${op.laborCostDiff > 0 ? 'text-[#EF4444]' : 'text-[#10B981]'}`}>
-                                        {op.laborCostDiff > 0 ? `+${formatBRL(op.laborCostDiff)}` : formatBRL(op.laborCostDiff)}
-                                      </span>
-                                    </div>
-                                  </div>
-
-                                  {/* Máquina Detalhada */}
-                                  <div className="p-3 bg-white rounded-lg border border-gray-200">
-                                    <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block mb-1">
-                                      Máquina
-                                    </span>
-                                    <div className="flex justify-between py-1 border-b border-gray-100">
-                                      <span className="text-gray-500">Horas Máquina:</span>
-                                      <span className="font-mono font-medium tabular-nums">
-                                        {op.actualMachineHours.toFixed(2)}h / {op.plannedMachineHours.toFixed(2)}h
-                                      </span>
-                                    </div>
-                                    <div className="flex justify-between py-1 border-b border-gray-100">
-                                      <span className="text-gray-500">Custo Máq:</span>
-                                      <span className="font-mono font-bold tabular-nums">
-                                        {formatBRL(op.actualMachineCost)} (prev: {formatBRL(op.plannedMachineCost)})
-                                      </span>
-                                    </div>
-                                    <div className="flex justify-between pt-1 font-semibold">
-                                      <span className="text-gray-600">Variação Máq:</span>
-                                      <span className={`font-mono tabular-nums ${op.machineCostDiff > 0 ? 'text-[#EF4444]' : 'text-[#10B981]'}`}>
-                                        {op.machineCostDiff > 0 ? `+${formatBRL(op.machineCostDiff)}` : formatBRL(op.machineCostDiff)}
-                                      </span>
-                                    </div>
-                                  </div>
-
-                                  {/* Insumos & Custo Unitário */}
-                                  <div className="p-3 bg-white rounded-lg border border-gray-200">
-                                    <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block mb-1">
-                                      Insumos & Custo Unitário
-                                    </span>
-                                    <div className="flex justify-between py-1 border-b border-gray-100">
-                                      <span className="text-gray-500">Materiais:</span>
-                                      <span className="font-mono font-bold tabular-nums">
-                                        {formatBRL(op.actualMaterialCost)} (prev: {formatBRL(op.plannedMaterialCost)})
-                                      </span>
-                                    </div>
-                                    <div className="flex justify-between py-1 border-b border-gray-100">
-                                      <span className="text-gray-500">Custo Unitário Etapa:</span>
-                                      <span className="font-mono font-medium tabular-nums">
-                                        {op.actualUnitCost ? formatBRLUnit(op.actualUnitCost) : 'N/A'} (prev: {formatBRLUnit(op.plannedUnitCost)})
-                                      </span>
-                                    </div>
-                                    <div className="flex justify-between pt-1 text-gray-600">
-                                      <span>Apontamentos:</span>
-                                      <span className="font-semibold">{op.logsCount} registro(s)</span>
-                                    </div>
-                                  </div>
-                                </div>
-
-                                {/* Justificativas de Desvios Registradas */}
-                                <div className="p-3 bg-amber-50/70 border border-amber-200/80 rounded-lg">
-                                  <span className="text-xs font-bold text-amber-900 block mb-1">
-                                    Justificativas e Ocorrências Técnicas Registradas:
-                                  </span>
-                                  {op.deviationReasons.length === 0 ? (
-                                    <p className="text-xs text-gray-500 italic">
-                                      Nenhum motivo de desvio foi registrado pela equipe de chão de fábrica para esta etapa.
-                                    </p>
-                                  ) : (
-                                    <ul className="list-disc list-inside text-xs text-amber-950 space-y-1">
-                                      {op.deviationReasons.map((reason, rIdx) => (
-                                        <li key={rIdx}>{reason}</li>
-                                      ))}
-                                    </ul>
-                                  )}
-                                </div>
-                              </div>
-                            </td>
-                          </tr>
-                        )}
-                      </React.Fragment>
-                    );
-                  })}
+                      );
+                    })
+                  )}
                 </tbody>
+                {summary.processos.length > 0 && (
+                  <tfoot className="bg-gray-50/90 border-t-2 border-gray-200 font-bold text-xs">
+                    <tr>
+                      <td colSpan={4} className="py-3 px-4 text-gray-700 uppercase tracking-wide">
+                        Total Máquinas & Tarefas Produtivas:
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono text-gray-900">
+                        {formatBRL(summary.plannedProcessosCost)}
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono text-[#00897B]">
+                        {formatBRL(summary.actualProcessosCost)}
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono">
+                        <span
+                          className={
+                            summary.actualProcessosCost > summary.plannedProcessosCost
+                              ? 'text-[#EF4444]'
+                              : summary.actualProcessosCost < summary.plannedProcessosCost
+                              ? 'text-[#10B981]'
+                              : 'text-gray-700'
+                          }
+                        >
+                          {summary.actualProcessosCost > summary.plannedProcessosCost
+                            ? `+${formatBRL(summary.actualProcessosCost - summary.plannedProcessosCost)}`
+                            : formatBRL(summary.actualProcessosCost - summary.plannedProcessosCost)}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono">
+                        {summary.plannedProcessosCost > 0
+                          ? formatPercent(
+                              ((summary.actualProcessosCost - summary.plannedProcessosCost) /
+                                summary.plannedProcessosCost) *
+                                100
+                            )
+                          : '0,00%'}
+                      </td>
+                      <td></td>
+                    </tr>
+                  </tfoot>
+                )}
               </table>
             </div>
           </div>
@@ -1067,6 +1061,17 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
         }}
         materialItem={selectedMaterialForEdit}
         onSave={handleSaveActualMaterial}
+      />
+
+      {/* Modal de Apontamento Real de Máquinas & Tarefas Produtivas */}
+      <ActualProcessModal
+        isOpen={isProcModalOpen}
+        onClose={() => {
+          setIsProcModalOpen(false);
+          setSelectedProcessForEdit(null);
+        }}
+        processItem={selectedProcessForEdit}
+        onSave={handleSaveActualProcess}
       />
     </div>
   );

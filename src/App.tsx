@@ -157,6 +157,7 @@ export default function App() {
               <ProductsView
                 products={products}
                 standardTasks={tasks}
+                machines={machines}
                 onRefresh={loadAllData}
                 onGoToLogs={handleGoToLogs}
                 onGoToAnalysis={handleGoToAnalysis}

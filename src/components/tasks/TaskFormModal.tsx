@@ -742,104 +742,11 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
           </>
         )}
 
-            {timeModel === 'MODELO_C' && (
-              <div className="pt-2 border-t border-slate-200 max-w-sm">
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Tempo por Unidade Processada *
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    type="number"
-                    min={0}
-                    step="any"
-                    value={unitTimeValue}
-                    onChange={(e) => setUnitTimeValue(Number(e.target.value))}
-                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg bg-white tabular-nums"
-                  />
-                  <select
-                    value={unitTimeUnit}
-                    onChange={(e) => setUnitTimeUnit(e.target.value as TimeUnit)}
-                    className="px-3 py-2 text-xs border border-slate-300 rounded-lg bg-white shrink-0"
-                  >
-                    <option value="SEGUNDOS">Segundos</option>
-                    <option value="MINUTOS">Minutos</option>
-                    <option value="HORAS">Horas</option>
-                  </select>
-                </div>
-              </div>
-            )}
-
-            {/* Simulador Interativo do Tempo da Tarefa */}
-            <div className="mt-3 p-3 bg-white rounded-lg border border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4">
-              <div className="flex items-center gap-2">
-                <Calculator className="w-4 h-4 text-blue-600 shrink-0" />
-                <span className="text-xs font-medium text-slate-700">Simulação para:</span>
-                <input
-                  type="number"
-                  min={1}
-                  value={previewQty}
-                  onChange={(e) => setPreviewQty(Number(e.target.value))}
-                  className="w-24 px-2 py-1 text-xs border border-slate-300 rounded text-center font-bold tabular-nums"
-                />
-                <span className="text-xs text-slate-500">{productionUnit}</span>
-              </div>
-              <div className="flex items-center gap-3 text-xs">
-                <div className="text-right">
-                  <span className="text-[10px] text-slate-400 block">Tempo Produção:</span>
-                  <span className="font-semibold text-slate-800 tabular-nums">
-                    {formatSecondsToTime(previewTimes.productionSeconds)}
-                  </span>
-                </div>
-                <div className="text-right">
-                  <span className="text-[10px] text-slate-400 block">Tempo Total:</span>
-                  <span className="font-bold text-blue-700 tabular-nums">
-                    {formatSecondsToTime(previewTimes.totalSeconds)}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* 3. CUSTOS PADRÃO (MÃO DE OBRA, MÁQUINA E MATERIAIS) */}
+        {/* 4. MATERIAIS E INSUMOS OPCIONAIS */}
         <div className="space-y-4">
           <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider border-b border-slate-100 pb-2">
-            3. Custos Padrão da Operação
+            4. Materiais e Insumos da Operação (Opcional)
           </h4>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Custo de Mão de Obra (R$ por hora) *
-              </label>
-              <div className="relative">
-                <span className="absolute left-3 top-2 text-xs text-slate-400">R$</span>
-                <input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  value={hourlyLaborRate}
-                  onChange={(e) => setHourlyLaborRate(Number(e.target.value))}
-                  className="w-full pl-9 pr-3 py-2 text-xs border border-slate-300 rounded-lg tabular-nums"
-                />
-              </div>
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Custo de Máquina (R$ por hora) *
-              </label>
-              <div className="relative">
-                <span className="absolute left-3 top-2 text-xs text-slate-400">R$</span>
-                <input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  value={hourlyMachineRate}
-                  onChange={(e) => setHourlyMachineRate(Number(e.target.value))}
-                  className="w-full pl-9 pr-3 py-2 text-xs border border-slate-300 rounded-lg tabular-nums"
-                />
-              </div>
-            </div>
-          </div>
 
           {/* Materiais e Insumos Opcionais */}
           <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 space-y-3">

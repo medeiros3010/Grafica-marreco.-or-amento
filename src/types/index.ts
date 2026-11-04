@@ -227,6 +227,43 @@ export interface ProductionLog {
 }
 
 // ==========================================
+// ESTRUTURA DO ORÇAMENTO: MÁQUINAS & TAREFAS PRODUTIVAS (NOVA ESTRUTURA)
+// ==========================================
+export type ProcessItemType = 'MAQUINA' | 'TAREFA';
+
+export interface ProductProcessItem {
+  id: string; // Identificador único do item no orçamento
+  order: number; // Sequência (1, 2, 3...)
+  tipoItem: ProcessItemType; // 'MAQUINA' ou 'TAREFA'
+  origemId?: string; // ID da Máquina ou Tarefa no catálogo cadastral
+  nome: string; // Nome da Máquina ou da Tarefa
+  descricao?: string; // Observações / detalhes da etapa
+  tipoCobranca: BillingUnitType; // 'HORA' (Custo por Hora) ou 'MILHEIRO' (Custo por Milheiro)
+  
+  // Parâmetros se tipoCobranca === 'HORA'
+  tempoPrevistoHoras: number; // Tempo previsto de utilização em horas (ex: 2.5)
+  custoHora: number; // Custo R$/hora cadastrado/aplicado
+  
+  // Parâmetros se tipoCobranca === 'MILHEIRO'
+  quantidadeProducao: number; // Quantidade prevista de produção (ex: 5.000 un)
+  custoMilheiro: number; // Custo R$ por 1.000 unidades
+  
+  // Custo Total Orçado deste item:
+  // Se HORA: tempoPrevistoHoras * custoHora
+  // Se MILHEIRO: (quantidadeProducao / 1000) * custoMilheiro
+  custoTotal: number;
+
+  // Realizado efetivo (para comparativo no Apontamento e Pós-Cálculo)
+  tempoRealHoras?: number;
+  custoHoraReal?: number;
+  quantidadeReal?: number;
+  custoMilheiroReal?: number;
+  custoTotalReal?: number;
+  status?: OperationStatus;
+  realizadoNotas?: string;
+}
+
+// ==========================================
 // ESTRUTURA DO ORÇAMENTO: MATÉRIA-PRIMA (BLOCO A)
 // ==========================================
 export interface ProductMaterialItem {
@@ -278,6 +315,7 @@ export interface BudgetRevision {
   notes?: string;
   productQuantity: number;
   operations: ProductOperation[];
+  processos?: ProductProcessItem[]; // Nova estrutura: Máquinas & Tarefas Produtivas
   materials?: ProductMaterialItem[]; // Insumos do Bloco A
   pricing?: ProductPricing; // Parâmetros dos Blocos B e C
   
@@ -290,8 +328,9 @@ export interface BudgetRevision {
   totalLaborCost: number;
   totalMachineCost: number;
   totalMaterialCost: number; // Total de materiais (avulsos da operação ou do Bloco A)
-  totalTasksCost: number; // Total das tarefas/processos
-  totalCost: number; // CUSTO TOTAL (Matéria Prima + Tarefas)
+  totalTasksCost: number; // Total legado
+  totalProcessosCost?: number; // Custo Total das Máquinas & Tarefas Produtivas
+  totalCost: number; // CUSTO TOTAL (Matéria Prima + Máquinas & Tarefas)
   unitCost: number;
 
   // Bloco B & C calculados
@@ -327,6 +366,7 @@ export interface Product {
   revisions: BudgetRevision[];
   
   draftOperations: ProductOperation[];
+  processos?: ProductProcessItem[]; // Nova estrutura oficial: Máquinas & Tarefas Produtivas
   materials?: ProductMaterialItem[]; // Matérias-Primas do Bloco A
   pricing?: ProductPricing; // Formação de Preço (Blocos B e C)
   activeRevision?: BudgetRevision;
@@ -400,7 +440,12 @@ export interface ActualRecord {
   totalMateriaisOrçado: number;
   totalMateriaisReal: number;
 
-  // Bloco A - Tarefas Espelhadas
+  // Bloco A - Máquinas & Tarefas Espelhadas (Nova Estrutura)
+  processos?: ProductProcessItem[];
+  totalProcessosOrçado?: number;
+  totalProcessosReal?: number;
+
+  // Bloco A - Tarefas Espelhadas (Legado)
   tasks: ActualTaskItem[];
   totalTarefasOrçado: number;
   totalTarefasReal: number;
@@ -518,6 +563,8 @@ export interface ProductComparisonSummary {
   actualMaterialsCost: number;
   plannedTasksCost: number;
   actualTasksCost: number;
+  plannedProcessosCost: number; // Custos orçados de Máquinas & Tarefas Produtivas
+  actualProcessosCost: number; // Custos realizados de Máquinas & Tarefas Produtivas
 
   plannedTotalCost: number; // Custo Total Orçado A
   actualTotalCost: number; // Custo Total Real A
@@ -572,6 +619,7 @@ export interface ProductComparisonSummary {
   finalTotal: number; // Valor Total Faturado
 
   operations: OperationComparison[];
+  processos: ProductProcessItem[]; // Nova estrutura oficial: Máquinas & Tarefas Produtivas
   materials: ProductMaterialItem[];
   
   totalOperations: number;

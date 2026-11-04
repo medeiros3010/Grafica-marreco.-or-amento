@@ -12,6 +12,8 @@ import {
   ProductStatus,
   ProductMaterialItem,
   ProductPricing,
+  ProductProcessItem,
+  Machine,
   DEFAULT_PRODUCT_PRICING,
 } from '../../types';
 import {
@@ -19,9 +21,11 @@ import {
   formatBRLUnit,
   formatSecondsToTime,
   calculateMarkupAndPricing,
+  getProductProcesses,
+  calculateProcessItemCost,
 } from '../../services/calculator';
 import { ProductStatusBadge } from '../common/Badge';
-import { AddOperationModal } from './AddOperationModal';
+import { AddProcessModal } from './AddProcessModal';
 import { AddMaterialModal } from './AddMaterialModal';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import { storage } from '../../services/storage';
@@ -47,11 +51,13 @@ import {
   Receipt,
   Save,
   Info,
+  Cpu,
 } from 'lucide-react';
 
 interface ProductDetailViewProps {
   product: Product;
   standardTasks: StandardTask[];
+  machines?: Machine[];
   onBack: () => void;
   onRefresh: () => void;
   onGoToLogs: (productId: string) => void;
@@ -61,6 +67,7 @@ interface ProductDetailViewProps {
 export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
   product,
   standardTasks,
+  machines = [],
   onBack,
   onRefresh,
   onGoToLogs,
@@ -68,11 +75,21 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
 }) => {
   const [expandedOpId, setExpandedOpId] = useState<string | null>(null);
 
-  // Modais de operação (Tarefas / Processos)
-  const [isOpModalOpen, setIsOpModalOpen] = useState(false);
-  const [editingOp, setEditingOp] = useState<ProductOperation | null>(null);
-  const [deleteOpConfirmOpen, setDeleteOpConfirmOpen] = useState(false);
-  const [opToDelete, setOpToDelete] = useState<string | null>(null);
+  // Carregamento de máquinas cadastradas
+  const [localMachines, setLocalMachines] = useState<Machine[]>(machines);
+  useEffect(() => {
+    if (!machines || machines.length === 0) {
+      storage.getAllMachines().then((loaded) => setLocalMachines(loaded.filter((m) => m.active)));
+    } else {
+      setLocalMachines(machines);
+    }
+  }, [machines]);
+
+  // Modais de Máquinas & Tarefas Produtivas (Nova Estrutura Oficial)
+  const [isProcessModalOpen, setIsProcessModalOpen] = useState(false);
+  const [editingProcess, setEditingProcess] = useState<ProductProcessItem | null>(null);
+  const [deleteProcessConfirmOpen, setDeleteProcessConfirmOpen] = useState(false);
+  const [processToDelete, setProcessToDelete] = useState<string | null>(null);
 
   // Modais de Matéria-Prima (Bloco A)
   const [isMaterialModalOpen, setIsMaterialModalOpen] = useState(false);
@@ -106,52 +123,26 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
     (r) => r.revisionNumber === selectedRevisionNumber
   ) || product.activeRevision;
 
-  // Operações e Matérias-Primas do Bloco A
-  const displayedOperations = isDraftMode
-    ? product.draftOperations || []
-    : currentRevision?.operations || product.draftOperations || [];
+  // Máquinas & Tarefas Produtivas (Nova Estrutura Oficial)
+  const displayedProcessos: ProductProcessItem[] = isDraftMode
+    ? getProductProcesses(product)
+    : currentRevision?.processos || getProductProcesses(product);
 
   const displayedMaterials: ProductMaterialItem[] = isDraftMode
     ? product.materials || []
     : currentRevision?.materials || product.materials || [];
 
   // ==========================================
-  // BLOCO A: CUSTOS (MATÉRIA-PRIMA + TAREFAS)
+  // BLOCO A: CUSTOS (MATÉRIA-PRIMA + MÁQUINAS & TAREFAS PRODUTIVAS)
   // ==========================================
   // 1. Subtotal Matérias-Primas
   const subtotalMateriais = displayedMaterials.reduce((sum, m) => sum + (m.totalCusto || 0), 0);
 
-  // 2. Subtotal Tarefas / Processos
-  const taskTotals = displayedOperations.reduce(
-    (acc, op) => {
-      acc.totalSetupSeconds += op.plannedSetupSeconds;
-      acc.totalProductionSeconds += op.plannedProductionSeconds;
-      acc.totalTimeSeconds += op.plannedTotalSeconds;
-      acc.totalLaborHours += op.plannedLaborHours;
-      acc.totalMachineHours += op.plannedMachineHours;
-      acc.totalLaborCost += op.plannedLaborCost;
-      acc.totalMachineCost += op.plannedMachineCost;
-      acc.totalOpMaterialCost += op.materialPlannedCost;
-      acc.totalTaskCost += op.plannedTotalCost;
-      return acc;
-    },
-    {
-      totalSetupSeconds: 0,
-      totalProductionSeconds: 0,
-      totalTimeSeconds: 0,
-      totalLaborHours: 0,
-      totalMachineHours: 0,
-      totalLaborCost: 0,
-      totalMachineCost: 0,
-      totalOpMaterialCost: 0,
-      totalTaskCost: 0,
-    }
-  );
+  // 2. Subtotal Máquinas & Tarefas Produtivas (Soma exclusiva dos itens vinculados)
+  const subtotalProcessos = displayedProcessos.reduce((sum, p) => sum + (p.custoTotal || 0), 0);
 
-  const subtotalTarefas = taskTotals.totalTaskCost;
-
-  // CUSTO TOTAL (Matéria Prima + Tarefas)
-  const custoTotalBlocoA = Number((subtotalMateriais + subtotalTarefas).toFixed(2));
+  // CUSTO TOTAL BLOCO A (Matéria Prima + Máquinas & Tarefas Produtivas)
+  const custoTotalBlocoA = Number((subtotalMateriais + subtotalProcessos).toFixed(2));
   const custoUnitarioBlocoA =
     product.quantity > 0 ? Number((custoTotalBlocoA / product.quantity).toFixed(4)) : 0;
 
@@ -195,50 +186,57 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
     onRefresh();
   };
 
-  // Handlers para Operações / Tarefas
-  const handleSaveOperation = async (operation: ProductOperation) => {
-    let updatedOperations = [...(product.draftOperations || [])];
-    const existingIndex = updatedOperations.findIndex((o) => o.id === operation.id);
+  // Handlers para Máquinas & Tarefas Produtivas (Nova Estrutura Oficial)
+  const handleSaveProcess = async (processItem: ProductProcessItem, keepOpen = false) => {
+    let updatedList = [...getProductProcesses(product)];
+    const existingIndex = updatedList.findIndex((p) => p.id === processItem.id);
 
     if (existingIndex >= 0) {
-      updatedOperations[existingIndex] = operation;
+      updatedList[existingIndex] = processItem;
     } else {
-      updatedOperations.push(operation);
+      updatedList.push(processItem);
     }
 
-    updatedOperations = updatedOperations.map((op, idx) => ({
-      ...op,
+    updatedList = updatedList.map((p, idx) => ({
+      ...p,
       order: idx + 1,
+      custoTotal: calculateProcessItemCost(p),
     }));
 
     const updatedProduct: Product = {
       ...product,
-      draftOperations: updatedOperations,
+      processos: updatedList,
     };
 
     await storage.saveProduct(updatedProduct);
+    if (keepOpen) {
+      setEditingProcess(null);
+    } else {
+      setIsProcessModalOpen(false);
+      setEditingProcess(null);
+    }
     onRefresh();
   };
 
-  const handleConfirmDeleteOp = async () => {
-    if (!opToDelete) return;
-    const filtered = (product.draftOperations || [])
-      .filter((o) => o.id !== opToDelete)
-      .map((op, idx) => ({ ...op, order: idx + 1 }));
+  const handleConfirmDeleteProcess = async () => {
+    if (!processToDelete) return;
+    const filtered = getProductProcesses(product)
+      .filter((p) => p.id !== processToDelete)
+      .map((p, idx) => ({ ...p, order: idx + 1 }));
 
     const updatedProduct: Product = {
       ...product,
-      draftOperations: filtered,
+      processos: filtered,
     };
 
     await storage.saveProduct(updatedProduct);
-    setOpToDelete(null);
-    setDeleteOpConfirmOpen(false);
+    setProcessToDelete(null);
+    setDeleteProcessConfirmOpen(false);
     onRefresh();
   };
 
-  const handleMoveOperation = async (index: number, direction: 'UP' | 'DOWN') => {
-    const list = [...(product.draftOperations || [])];
+  const handleMoveProcess = async (index: number, direction: 'UP' | 'DOWN') => {
+    const list = [...getProductProcesses(product)];
     const targetIndex = direction === 'UP' ? index - 1 : index + 1;
     if (targetIndex < 0 || targetIndex >= list.length) return;
 
@@ -246,10 +244,10 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
     list[index] = list[targetIndex];
     list[targetIndex] = temp;
 
-    const reordered = list.map((op, idx) => ({ ...op, order: idx + 1 }));
+    const reordered = list.map((p, idx) => ({ ...p, order: idx + 1 }));
     await storage.saveProduct({
       ...product,
-      draftOperations: reordered,
+      processos: reordered,
     });
     onRefresh();
   };
@@ -267,8 +265,8 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
 
   // APROVAÇÃO DO ORÇAMENTO (CONGELA SNAPSHOT)
   const handleApproveBudget = async () => {
-    if ((product.draftOperations || []).length === 0 && (product.materials || []).length === 0) {
-      alert('Adicione pelo menos uma matéria-prima ou tarefa antes de aprovar o orçamento.');
+    if (displayedProcessos.length === 0 && (product.materials || []).length === 0) {
+      alert('Adicione pelo menos uma matéria-prima ou máquina/tarefa produtiva antes de aprovar o orçamento.');
       return;
     }
 
@@ -277,20 +275,22 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
       revisionNumber: nextRevNum,
       approvedAt: new Date().toISOString(),
       approvedBy: 'Usuário do Sistema',
-      notes: `Orçamento aprovado com ${(product.materials || []).length} insumos e ${(product.draftOperations || []).length} etapas.`,
+      notes: `Orçamento aprovado com ${(product.materials || []).length} insumos e ${displayedProcessos.length} máquinas/tarefas produtivas.`,
       productQuantity: product.quantity,
-      operations: JSON.parse(JSON.stringify(product.draftOperations || [])),
+      operations: [],
+      processos: JSON.parse(JSON.stringify(displayedProcessos)),
       materials: JSON.parse(JSON.stringify(product.materials || [])),
       pricing: JSON.parse(JSON.stringify(pricingForm)),
-      totalSetupSeconds: taskTotals.totalSetupSeconds,
-      totalProductionSeconds: taskTotals.totalProductionSeconds,
-      totalTimeSeconds: taskTotals.totalTimeSeconds,
-      totalLaborHours: Number(taskTotals.totalLaborHours.toFixed(4)),
-      totalMachineHours: Number(taskTotals.totalMachineHours.toFixed(4)),
-      totalLaborCost: Number(taskTotals.totalLaborCost.toFixed(2)),
-      totalMachineCost: Number(taskTotals.totalMachineCost.toFixed(2)),
+      totalSetupSeconds: 0,
+      totalProductionSeconds: 0,
+      totalTimeSeconds: 0,
+      totalLaborHours: 0,
+      totalMachineHours: 0,
+      totalLaborCost: 0,
+      totalMachineCost: 0,
       totalMaterialCost: Number(subtotalMateriais.toFixed(2)),
-      totalTasksCost: Number(subtotalTarefas.toFixed(2)),
+      totalTasksCost: Number(subtotalProcessos.toFixed(2)),
+      totalProcessosCost: Number(subtotalProcessos.toFixed(2)),
       totalCost: Number(custoTotalBlocoA.toFixed(2)),
       unitCost: Number(custoUnitarioBlocoA.toFixed(4)),
       markupValue: calculatedPricing.markupValue,
@@ -310,6 +310,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
       currentRevisionNumber: nextRevNum,
       revisions: [...(product.revisions || []), frozenRevision],
       activeRevision: frozenRevision,
+      processos: displayedProcessos,
       pricing: pricingForm,
     };
 
@@ -329,9 +330,9 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
       return;
     }
 
-    const draftOps = currentRevision
-      ? JSON.parse(JSON.stringify(currentRevision.operations))
-      : product.draftOperations;
+    const draftProcessos = currentRevision?.processos
+      ? JSON.parse(JSON.stringify(currentRevision.processos))
+      : getProductProcesses(product);
     const draftMats = currentRevision?.materials
       ? JSON.parse(JSON.stringify(currentRevision.materials))
       : product.materials;
@@ -340,7 +341,8 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
     const updatedProduct: Product = {
       ...product,
       status: 'RASCUNHO',
-      draftOperations: draftOps,
+      processos: draftProcessos,
+      draftOperations: [],
       materials: draftMats,
       pricing: draftPricing,
     };
@@ -650,26 +652,26 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
           </div>
         </div>
 
-        {/* 2. SEÇÃO DE TAREFAS / PROCESSOS */}
+        {/* 2. SEÇÃO DE MÁQUINAS & TAREFAS PRODUTIVAS (NOVA ESTRUTURA OFICIAL) */}
         <div className="space-y-3 pt-2">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div className="flex items-center gap-2">
-              <Layers className="w-4 h-4 text-[#01B8AA]" />
-              <h4 className="text-sm font-bold text-[#374151]">Tarefas & Processos Produtivos</h4>
+              <Cpu className="w-4 h-4 text-[#01B8AA]" />
+              <h4 className="text-sm font-bold text-[#374151]">Máquinas & Tarefas Produtivas</h4>
               <span className="text-xs text-gray-400">
-                ({displayedOperations.length} {displayedOperations.length === 1 ? 'etapa' : 'etapas'})
+                ({displayedProcessos.length} {displayedProcessos.length === 1 ? 'item' : 'itens'})
               </span>
             </div>
             {isDraftMode && (
               <button
                 onClick={() => {
-                  setEditingOp(null);
-                  setIsOpModalOpen(true);
+                  setEditingProcess(null);
+                  setIsProcessModalOpen(true);
                 }}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-[#01B8AA] hover:bg-[#009E91] rounded-lg shadow-sm transition-colors"
               >
                 <Plus className="w-3.5 h-3.5" />
-                Adicionar Tarefa
+                Vincular Máquina / Tarefa
               </button>
             )}
           </div>
@@ -679,155 +681,146 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
               <thead className="bg-gray-50 border-b border-gray-200 text-gray-500 font-semibold uppercase tracking-wider text-[11px]">
                 <tr>
                   <th className="py-2.5 px-3 text-center w-10">#</th>
-                  <th className="py-2.5 px-4">Operação & Máquina</th>
-                  <th className="py-2.5 px-4 text-right">Tempo Acerto</th>
-                  <th className="py-2.5 px-4 text-right">Tempo Prod.</th>
-                  <th className="py-2.5 px-4 text-right">Tempo Total</th>
-                  <th className="py-2.5 px-4 text-right">Custo Máq/h</th>
-                  <th className="py-2.5 px-4 text-right font-bold text-gray-800">Total (R$)</th>
-                  <th className="py-2.5 px-4 text-right w-24">Ações</th>
+                  <th className="py-2.5 px-3 text-center w-20">Tipo</th>
+                  <th className="py-2.5 px-4">Máquina / Tarefa Vinculada</th>
+                  <th className="py-2.5 px-4 text-center">Tipo de Cobrança</th>
+                  <th className="py-2.5 px-4 text-right">Parâmetros Previstos</th>
+                  <th className="py-2.5 px-4 text-right font-bold text-gray-800">Custo Total (R$)</th>
+                  {isDraftMode && <th className="py-2.5 px-4 text-right w-24">Ações</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {displayedOperations.length === 0 ? (
+                {displayedProcessos.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="py-6 text-center text-gray-400">
-                      Nenhuma tarefa/operação cadastrada neste orçamento.
+                    <td colSpan={isDraftMode ? 7 : 6} className="py-8 text-center text-gray-400">
+                      <Cpu className="w-8 h-8 mx-auto text-gray-300 mb-2" />
+                      <p className="font-medium text-gray-600">Nenhuma máquina ou tarefa produtiva vinculada a este orçamento.</p>
+                      <p className="text-[11px] text-gray-400 mt-0.5">
+                        Clique em "Vincular Máquina / Tarefa" para compor os custos operacionais por hora ou milheiro.
+                      </p>
                     </td>
                   </tr>
                 ) : (
-                  displayedOperations.map((op, idx) => {
-                    const isExpanded = expandedOpId === op.id;
-                    const totalHours = (op.plannedSetupSeconds + op.plannedProductionSeconds) / 3600;
+                  displayedProcessos.map((proc, idx) => {
+                    const isHora = proc.tipoCobranca === 'HORA';
 
                     return (
-                      <React.Fragment key={op.id}>
-                        <tr className="hover:bg-teal-50/20 even:bg-slate-50/40 transition-colors">
-                          <td className="py-2.5 px-3 text-center font-bold text-gray-400">
-                            {isDraftMode ? (
-                              <div className="flex flex-col items-center">
-                                <button
-                                  disabled={idx === 0}
-                                  onClick={() => handleMoveOperation(idx, 'UP')}
-                                  className="text-gray-300 hover:text-gray-600 disabled:opacity-20"
-                                >
-                                  <ChevronUp className="w-3.5 h-3.5" />
-                                </button>
-                                <span className="text-xs text-gray-700">{op.order}</span>
-                                <button
-                                  disabled={idx === displayedOperations.length - 1}
-                                  onClick={() => handleMoveOperation(idx, 'DOWN')}
-                                  className="text-gray-300 hover:text-gray-600 disabled:opacity-20"
-                                >
-                                  <ChevronDown className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-                            ) : (
-                              <span>{op.order}</span>
-                            )}
-                          </td>
-                          <td className="py-2.5 px-4">
-                            <div className="font-semibold text-gray-800">{op.name}</div>
-                            <div className="text-[11px] text-gray-500">{op.machine || 'Sem máquina vinculada'}</div>
-                          </td>
-                          <td className="py-2.5 px-4 text-right font-mono text-gray-600">
-                            {formatSecondsToTime(op.plannedSetupSeconds)}
-                          </td>
-                          <td className="py-2.5 px-4 text-right font-mono text-gray-600">
-                            {formatSecondsToTime(op.plannedProductionSeconds)}
-                          </td>
-                          <td className="py-2.5 px-4 text-right font-mono font-medium text-gray-800">
-                            {formatSecondsToTime(op.plannedTotalSeconds)} ({totalHours.toFixed(2)}h)
-                          </td>
-                          <td className="py-2.5 px-4 text-right font-mono text-gray-600">
-                            {formatBRL(op.hourlyMachineRate)}/h
-                          </td>
-                          <td className="py-2.5 px-4 text-right font-mono font-bold text-[#00897B]">
-                            {formatBRL(op.plannedTotalCost)}
-                          </td>
+                      <tr key={proc.id} className="hover:bg-teal-50/20 even:bg-slate-50/40 transition-colors">
+                        <td className="py-2.5 px-3 text-center font-bold text-gray-400">
+                          {isDraftMode ? (
+                            <div className="flex flex-col items-center">
+                              <button
+                                disabled={idx === 0}
+                                onClick={() => handleMoveProcess(idx, 'UP')}
+                                className="text-gray-300 hover:text-gray-600 disabled:opacity-20"
+                              >
+                                <ChevronUp className="w-3.5 h-3.5" />
+                              </button>
+                              <span className="text-xs text-gray-700">{proc.order}</span>
+                              <button
+                                disabled={idx === displayedProcessos.length - 1}
+                                onClick={() => handleMoveProcess(idx, 'DOWN')}
+                                className="text-gray-300 hover:text-gray-600 disabled:opacity-20"
+                              >
+                                <ChevronDown className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          ) : (
+                            <span>{proc.order}</span>
+                          )}
+                        </td>
+
+                        <td className="py-2.5 px-3 text-center">
+                          {proc.tipoItem === 'MAQUINA' ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-200">
+                              <Cpu className="w-3 h-3" />
+                              Máquina
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-cyan-50 text-cyan-700 border border-cyan-200">
+                              <Layers className="w-3 h-3" />
+                              Tarefa
+                            </span>
+                          )}
+                        </td>
+
+                        <td className="py-2.5 px-4">
+                          <div className="font-semibold text-gray-800">{proc.nome}</div>
+                          {proc.descricao && (
+                            <div className="text-[11px] text-gray-500 mt-0.5">{proc.descricao}</div>
+                          )}
+                        </td>
+
+                        <td className="py-2.5 px-4 text-center">
+                          {isHora ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-50 text-sky-800 border border-sky-200">
+                              <Clock className="w-3 h-3" />
+                              Custo por Hora
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                              <Package className="w-3 h-3" />
+                              Custo por Milheiro
+                            </span>
+                          )}
+                        </td>
+
+                        <td className="py-2.5 px-4 text-right font-mono text-gray-700">
+                          {isHora ? (
+                            <span>
+                              <strong>{proc.tempoPrevistoHoras}h</strong> × {formatBRL(proc.custoHora)}/h
+                            </span>
+                          ) : (
+                            <span>
+                              <strong>{proc.quantidadeProducao.toLocaleString('pt-BR')} un</strong> × {formatBRL(proc.custoMilheiro)}/milheiro
+                            </span>
+                          )}
+                        </td>
+
+                        <td className="py-2.5 px-4 text-right font-mono font-bold text-[#00897B] text-sm">
+                          {formatBRL(proc.custoTotal)}
+                        </td>
+
+                        {isDraftMode && (
                           <td className="py-2.5 px-4 text-right">
                             <div className="flex items-center justify-end gap-1">
                               <button
-                                onClick={() => setExpandedOpId(isExpanded ? null : op.id)}
-                                title="Expandir Detalhes"
-                                className="p-1 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded"
+                                onClick={() => {
+                                  setEditingProcess(proc);
+                                  setIsProcessModalOpen(true);
+                                }}
+                                title="Editar Processo"
+                                className="p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded"
                               >
-                                {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                                <Edit2 className="w-3.5 h-3.5" />
                               </button>
-                              {isDraftMode && (
-                                <>
-                                  <button
-                                    onClick={() => {
-                                      setEditingOp(op);
-                                      setIsOpModalOpen(true);
-                                    }}
-                                    title="Editar Tarefa"
-                                    className="p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded"
-                                  >
-                                    <Edit2 className="w-3.5 h-3.5" />
-                                  </button>
-                                  <button
-                                    onClick={() => {
-                                      setOpToDelete(op.id);
-                                      setDeleteOpConfirmOpen(true);
-                                    }}
-                                    title="Excluir Tarefa"
-                                    className="p-1 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </>
-                              )}
+                              <button
+                                onClick={() => {
+                                  setProcessToDelete(proc.id);
+                                  setDeleteProcessConfirmOpen(true);
+                                }}
+                                title="Excluir Processo"
+                                className="p-1 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
                             </div>
                           </td>
-                        </tr>
-
-                        {isExpanded && (
-                          <tr className="bg-slate-50 border-b border-gray-200">
-                            <td colSpan={8} className="p-4">
-                              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-                                <div className="p-2.5 bg-white rounded border border-gray-200">
-                                  <span className="font-bold text-gray-500 uppercase text-[10px] block">
-                                    Mão de Obra
-                                  </span>
-                                  <div className="mt-1 text-gray-700">
-                                    Taxa: {formatBRL(op.hourlyLaborRate)}/h · Total: {formatBRL(op.plannedLaborCost)} ({op.plannedLaborHours.toFixed(2)}h)
-                                  </div>
-                                </div>
-                                <div className="p-2.5 bg-white rounded border border-gray-200">
-                                  <span className="font-bold text-gray-500 uppercase text-[10px] block">
-                                    Custo de Máquina
-                                  </span>
-                                  <div className="mt-1 text-gray-700">
-                                    Taxa: {formatBRL(op.hourlyMachineRate)}/h · Total: {formatBRL(op.plannedMachineCost)} ({op.plannedMachineHours.toFixed(2)}h)
-                                  </div>
-                                </div>
-                                <div className="p-2.5 bg-white rounded border border-gray-200">
-                                  <span className="font-bold text-gray-500 uppercase text-[10px] block">
-                                    Materiais Específicos da Etapa
-                                  </span>
-                                  <div className="mt-1 text-gray-700">
-                                    {op.materialName ? `${op.materialName} · Total: ${formatBRL(op.materialPlannedCost)}` : 'Nenhum material avulso'}
-                                  </div>
-                                </div>
-                              </div>
-                            </td>
-                          </tr>
                         )}
-                      </React.Fragment>
+                      </tr>
                     );
                   })
                 )}
               </tbody>
               <tfoot className="bg-gray-50 border-t border-gray-200 font-semibold text-xs">
                 <tr>
-                  <td colSpan={6} className="py-2 px-4 text-right text-gray-600 uppercase tracking-wider text-[11px]">
-                    Subtotal Tarefas / Processos:
+                  <td colSpan={isDraftMode ? 5 : 4} className="py-2.5 px-4 text-right text-gray-600 uppercase tracking-wider text-[11px]">
+                    Subtotal Máquinas & Tarefas Produtivas:
                   </td>
-                  <td className="py-2 px-4 text-right font-bold text-[#00897B] font-mono">
-                    {formatBRL(subtotalTarefas)}
+                  <td className="py-2.5 px-4 text-right font-bold text-[#00897B] font-mono text-sm">
+                    {formatBRL(subtotalProcessos)}
                   </td>
-                  <td></td>
+                  {isDraftMode && <td></td>}
                 </tr>
               </tfoot>
             </table>
@@ -842,10 +835,10 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
             </div>
             <div>
               <span className="text-xs font-bold text-gray-700 uppercase tracking-wider block">
-                CUSTO TOTAL (Matéria Prima + Tarefas)
+                CUSTO TOTAL (Matéria Prima + Máquinas & Tarefas)
               </span>
               <p className="text-xs text-gray-500">
-                Subtotal Matérias-Primas ({formatBRL(subtotalMateriais)}) + Subtotal Processos ({formatBRL(subtotalTarefas)})
+                Subtotal Matérias-Primas ({formatBRL(subtotalMateriais)}) + Subtotal Máquinas & Tarefas ({formatBRL(subtotalProcessos)})
               </p>
             </div>
           </div>
@@ -1241,16 +1234,20 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
         </div>
       </div>
 
-      {/* Modal de Adicionar/Editar Operação */}
-      <AddOperationModal
-        isOpen={isOpModalOpen}
-        onClose={() => setIsOpModalOpen(false)}
-        onSaveOperation={handleSaveOperation}
+      {/* Modal de Adicionar/Editar Máquina ou Tarefa Produtiva */}
+      <AddProcessModal
+        isOpen={isProcessModalOpen}
+        onClose={() => {
+          setIsProcessModalOpen(false);
+          setEditingProcess(null);
+        }}
+        onSaveProcess={handleSaveProcess}
+        machines={localMachines}
         standardTasks={standardTasks}
         productQuantity={product.quantity}
         productUnit={product.productionUnit}
-        initialOperation={editingOp}
-        nextOrder={(displayedOperations.length || 0) + 1}
+        initialProcess={editingProcess}
+        nextOrder={(displayedProcessos.length || 0) + 1}
       />
 
       {/* Modal de Adicionar/Editar Matéria-Prima */}
@@ -1261,18 +1258,18 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
         initialMaterial={editingMaterial}
       />
 
-      {/* Confirmação de Remoção de Operação */}
+      {/* Confirmação de Remoção de Processo (Máquina / Tarefa) */}
       <ConfirmDialog
-        isOpen={deleteOpConfirmOpen}
+        isOpen={deleteProcessConfirmOpen}
         onClose={() => {
-          setDeleteOpConfirmOpen(false);
-          setOpToDelete(null);
+          setDeleteProcessConfirmOpen(false);
+          setProcessToDelete(null);
         }}
-        onConfirm={handleConfirmDeleteOp}
-        title="Remover Tarefa do Orçamento"
-        message="Deseja realmente remover esta etapa do orçamento? Os custos do Bloco A e os preços finais dos Blocos B e C serão recalculados imediatamente."
+        onConfirm={handleConfirmDeleteProcess}
+        title="Remover Processo Produtivo do Orçamento"
+        message="Deseja realmente remover esta máquina/tarefa do orçamento? Os custos do Bloco A e os preços finais dos Blocos B e C serão recalculados imediatamente."
         type="danger"
-        confirmText="Remover Tarefa"
+        confirmText="Remover Processo"
       />
 
       {/* Confirmação de Remoção de Matéria-Prima */}

@@ -35,27 +35,21 @@ export const ProductFinalReport: React.FC<ProductFinalReportProps> = ({
   product,
   onBack,
 }) => {
-  // Identificação diagnóstica
-  const operationsOverCost = summary.operations.filter(
-    (o) => !o.isPending && o.financialDifference > 0
+  // Identificação diagnóstica de Máquinas & Tarefas Produtivas
+  const processosOverCost = summary.processos.filter(
+    (p) => (p.custoTotalReal ?? p.custoTotal ?? 0) > (p.custoTotal || 0)
   );
-  const operationsUnderCost = summary.operations.filter(
-    (o) => !o.isPending && o.financialDifference < 0
+  const processosUnderCost = summary.processos.filter(
+    (p) => (p.custoTotalReal ?? p.custoTotal ?? 0) < (p.custoTotal || 0)
   );
 
   // Categorias responsáveis pelo desvio
   const categoryDeviations = [
     {
-      name: 'Mão de Obra',
-      diff: summary.actualLaborCost - summary.plannedLaborCost,
-      planned: summary.plannedLaborCost,
-      actual: summary.actualLaborCost,
-    },
-    {
-      name: 'Máquina',
-      diff: summary.actualMachineCost - summary.plannedMachineCost,
-      planned: summary.plannedMachineCost,
-      actual: summary.actualMachineCost,
+      name: 'Máquinas & Tarefas Produtivas',
+      diff: summary.actualProcessosCost - summary.plannedProcessosCost,
+      planned: summary.plannedProcessosCost,
+      actual: summary.actualProcessosCost,
     },
     {
       name: 'Matérias-Primas (Insumos)',
@@ -67,10 +61,13 @@ export const ProductFinalReport: React.FC<ProductFinalReportProps> = ({
 
   // Coleta de justificativas reais cadastradas
   const allReasons: { opName: string; reason: string }[] = [];
-  summary.operations.forEach((op) => {
-    op.deviationReasons.forEach((r) => {
-      allReasons.push({ opName: `${op.code} - ${op.name}`, reason: r });
-    });
+  summary.processos.forEach((p) => {
+    if (p.realizadoNotas) {
+      allReasons.push({
+        opName: `${p.tipoItem === 'MAQUINA' ? 'Máquina' : 'Tarefa'}: ${p.nome}`,
+        reason: p.realizadoNotas,
+      });
+    }
   });
 
   return (
@@ -362,50 +359,62 @@ export const ProductFinalReport: React.FC<ProductFinalReportProps> = ({
           </h2>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-            {/* Operações com Excesso */}
+            {/* Processos com Excesso */}
             <div className="p-4 bg-red-50/60 border border-red-200 rounded-lg space-y-2">
               <span className="font-bold text-red-900 flex items-center gap-1.5">
                 <AlertTriangle className="w-4 h-4 text-[#EF4444]" />
-                Operações com Excesso de Custo / Tempo:
+                Itens com Excesso de Custo (Máquinas / Tarefas):
               </span>
-              {operationsOverCost.length === 0 ? (
-                <p className="text-gray-600 italic">Nenhuma operação extrapolou o custo previsto.</p>
+              {processosOverCost.length === 0 ? (
+                <p className="text-gray-600 italic">Nenhum item produtivo extrapolou o custo previsto.</p>
               ) : (
                 <ul className="space-y-1.5">
-                  {operationsOverCost.map((op) => (
-                    <li key={op.operationId} className="flex justify-between items-center bg-white p-2 rounded border border-red-100">
-                      <span className="font-medium text-gray-800">
-                        {op.code} - {op.name}
-                      </span>
-                      <span className="font-bold text-[#EF4444] font-mono tabular-nums">
-                        +{formatBRL(op.financialDifference)} ({formatPercent(op.financialVariancePercent)})
-                      </span>
-                    </li>
-                  ))}
+                  {processosOverCost.map((proc, idx) => {
+                    const orçado = proc.custoTotal || 0;
+                    const real = proc.custoTotalReal ?? orçado;
+                    const diff = real - orçado;
+                    const pct = orçado > 0 ? (diff / orçado) * 100 : 0;
+                    return (
+                      <li key={proc.id || idx} className="flex justify-between items-center bg-white p-2 rounded border border-red-100">
+                        <span className="font-medium text-gray-800">
+                          [{proc.tipoItem === 'MAQUINA' ? 'Máquina' : 'Tarefa'}] {proc.nome}
+                        </span>
+                        <span className="font-bold text-[#EF4444] font-mono tabular-nums">
+                          +{formatBRL(diff)} ({formatPercent(pct)})
+                        </span>
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </div>
 
-            {/* Operações com Economia */}
+            {/* Processos com Economia */}
             <div className="p-4 bg-emerald-50/60 border border-emerald-200 rounded-lg space-y-2">
               <span className="font-bold text-emerald-900 flex items-center gap-1.5">
                 <CheckCircle className="w-4 h-4 text-[#10B981]" />
-                Operações com Economia em Relação ao Orçamento:
+                Itens com Economia em Relação ao Orçamento:
               </span>
-              {operationsUnderCost.length === 0 ? (
-                <p className="text-gray-600 italic">Nenhuma operação teve custo abaixo do orçado.</p>
+              {processosUnderCost.length === 0 ? (
+                <p className="text-gray-600 italic">Nenhum item produtivo teve custo abaixo do orçado.</p>
               ) : (
                 <ul className="space-y-1.5">
-                  {operationsUnderCost.map((op) => (
-                    <li key={op.operationId} className="flex justify-between items-center bg-white p-2 rounded border border-emerald-100">
-                      <span className="font-medium text-gray-800">
-                        {op.code} - {op.name}
-                      </span>
-                      <span className="font-bold text-[#10B981] font-mono tabular-nums">
-                        {formatBRL(op.financialDifference)} ({formatPercent(op.financialVariancePercent)})
-                      </span>
-                    </li>
-                  ))}
+                  {processosUnderCost.map((proc, idx) => {
+                    const orçado = proc.custoTotal || 0;
+                    const real = proc.custoTotalReal ?? orçado;
+                    const diff = real - orçado;
+                    const pct = orçado > 0 ? (diff / orçado) * 100 : 0;
+                    return (
+                      <li key={proc.id || idx} className="flex justify-between items-center bg-white p-2 rounded border border-emerald-100">
+                        <span className="font-medium text-gray-800">
+                          [{proc.tipoItem === 'MAQUINA' ? 'Máquina' : 'Tarefa'}] {proc.nome}
+                        </span>
+                        <span className="font-bold text-[#10B981] font-mono tabular-nums">
+                          {formatBRL(diff)} ({formatPercent(pct)})
+                        </span>
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </div>

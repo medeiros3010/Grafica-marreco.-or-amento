@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { StandardTask, Product, ProductionLog, Machine, RawMaterial, ProductMaterialItem, ProductPricing } from '../types';
+import { StandardTask, Product, ProductionLog, Machine, RawMaterial, ProductMaterialItem, ProductPricing, ProductProcessItem } from '../types';
 
 export const INITIAL_MACHINES: Machine[] = [
   {
@@ -316,6 +316,111 @@ export const INITIAL_STANDARD_TASKS: StandardTask[] = [
   },
 ];
 
+// PROCESSOS PRODUTIVOS (Máquinas & Tarefas Produtivas)
+export const SEED_PRODUCT_PROCESSOS: ProductProcessItem[] = [
+  {
+    id: 'proc_seed_1',
+    order: 1,
+    tipoItem: 'MAQUINA',
+    origemId: 'mach_offset_sm74',
+    nome: 'Heidelberg Speedmaster SM 74 (4 Cores)',
+    descricao: 'Impressão offset 4x4 cores de cadernos e capa',
+    tipoCobranca: 'HORA',
+    tempoPrevistoHoras: 4.5,
+    custoHora: 220.0,
+    quantidadeProducao: 0,
+    custoMilheiro: 0,
+    custoTotal: 990.0,
+    tempoRealHoras: 4.8,
+    custoHoraReal: 220.0,
+    quantidadeReal: 0,
+    custoMilheiroReal: 0,
+    custoTotalReal: 1056.0,
+    status: 'CONCLUIDA',
+    realizadoNotas: 'Acerto de cor demandou 18 minutos a mais por ajuste na carga de tinta preta.',
+  },
+  {
+    id: 'proc_seed_2',
+    order: 2,
+    tipoItem: 'MAQUINA',
+    origemId: 'mach_guilhotina_polar',
+    nome: 'Guilhotina Polar Mohr 115 Plus',
+    descricao: 'Esquadrejamento de folhas inteiras e refile final',
+    tipoCobranca: 'HORA',
+    tempoPrevistoHoras: 2.0,
+    custoHora: 182.54,
+    quantidadeProducao: 0,
+    custoMilheiro: 0,
+    custoTotal: 365.08,
+    tempoRealHoras: 1.8,
+    custoHoraReal: 182.54,
+    quantidadeReal: 0,
+    custoMilheiroReal: 0,
+    custoTotalReal: 328.57,
+    status: 'CONCLUIDA',
+  },
+  {
+    id: 'proc_seed_3',
+    order: 3,
+    tipoItem: 'TAREFA',
+    origemId: 'task_lam_bopp_01',
+    nome: 'Laminação Térmica BOPP Fosco',
+    descricao: 'Acabamento acetinado aveludado na capa externa',
+    tipoCobranca: 'MILHEIRO',
+    tempoPrevistoHoras: 0,
+    custoHora: 0,
+    quantidadeProducao: 3000,
+    custoMilheiro: 85.0,
+    custoTotal: 255.0,
+    tempoRealHoras: 0,
+    custoHoraReal: 0,
+    quantidadeReal: 3100,
+    custoMilheiroReal: 85.0,
+    custoTotalReal: 263.5,
+    status: 'CONCLUIDA',
+  },
+  {
+    id: 'proc_seed_4',
+    order: 4,
+    tipoItem: 'TAREFA',
+    origemId: 'task_dobra_cadernos_01',
+    nome: 'Dobra Automática de Cadernos 16 Páginas',
+    descricao: 'Formação dos cadernos 16 páginas do miolo',
+    tipoCobranca: 'HORA',
+    tempoPrevistoHoras: 3.0,
+    custoHora: 75.0,
+    quantidadeProducao: 0,
+    custoMilheiro: 0,
+    custoTotal: 225.0,
+    tempoRealHoras: 2.8,
+    custoHoraReal: 75.0,
+    quantidadeReal: 0,
+    custoMilheiroReal: 0,
+    custoTotalReal: 210.0,
+    status: 'CONCLUIDA',
+  },
+  {
+    id: 'proc_seed_5',
+    order: 5,
+    tipoItem: 'TAREFA',
+    origemId: 'task_embalagem_01',
+    nome: 'Embalagem em Termoencolhível e Caixas',
+    descricao: 'Acondicionamento e proteção para transporte',
+    tipoCobranca: 'MILHEIRO',
+    tempoPrevistoHoras: 0,
+    custoHora: 0,
+    quantidadeProducao: 3000,
+    custoMilheiro: 50.0,
+    custoTotal: 150.0,
+    tempoRealHoras: 0,
+    custoHoraReal: 0,
+    quantidadeReal: 3000,
+    custoMilheiroReal: 50.0,
+    custoTotalReal: 150.0,
+    status: 'CONCLUIDA',
+  },
+];
+
 // PRODUTO DEMONSTRATIVO INICIAL (Pronto para visualização imediata)
 export const INITIAL_PRODUCTS: Product[] = [
   {
@@ -509,8 +614,10 @@ export const INITIAL_PRODUCTS: Product[] = [
         totalMachineCost: 1090.79,
         totalMaterialCost: 1817.0,
         totalTasksCost: 1653.49,
-        totalCost: 3470.49,
-        unitCost: 1.1568,
+        processos: SEED_PRODUCT_PROCESSOS,
+        totalProcessosCost: 1985.08,
+        totalCost: 3803.08,
+        unitCost: 1.2677,
         materials: [
           {
             id: 'mat_item_01',
@@ -593,6 +700,7 @@ export const INITIAL_PRODUCTS: Product[] = [
       icmsStPercent: 0,
     },
     draftOperations: [],
+    processos: SEED_PRODUCT_PROCESSOS,
     activeRevision: undefined, // será preenchido abaixo
     createdAt: '2026-10-15T10:00:00Z',
     updatedAt: '2026-10-16T14:30:00Z',

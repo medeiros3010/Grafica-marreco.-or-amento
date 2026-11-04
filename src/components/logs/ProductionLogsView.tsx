@@ -10,6 +10,9 @@ import {
   ProductOperation,
   ProductMaterialItem,
   ProductPricing,
+  ProductProcessItem,
+  ProcessItemType,
+  OperationStatus,
   ActualRecord,
   ActualMaterialItem,
   ActualTaskItem,
@@ -22,6 +25,9 @@ import {
   formatPercent,
   formatSecondsToTime,
   calculateMarkupAndPricing,
+  getProductProcesses,
+  calculateProcessItemCost,
+  calculateProcessItemActualCost,
 } from '../../services/calculator';
 import { storage } from '../../services/storage';
 import { ProductStatusBadge } from '../common/Badge';
@@ -43,6 +49,8 @@ import {
   Search,
   ArrowRight,
   Info,
+  Cpu,
+  Wrench,
 } from 'lucide-react';
 
 interface ProductionLogsViewProps {
@@ -52,6 +60,27 @@ interface ProductionLogsViewProps {
   onRefresh: () => void;
   onSelectProduct: (id: string) => void;
   onGoToAnalysis: (productId: string) => void;
+}
+
+export interface ProcessoLogState {
+  id: string;
+  origemId?: string;
+  order: number;
+  tipoItem: ProcessItemType;
+  nome: string;
+  descricao?: string;
+  tipoCobranca: 'HORA' | 'MILHEIRO';
+  tempoPrevistoHoras: number;
+  custoHora: number;
+  quantidadeProducao: number;
+  custoMilheiro: number;
+  custoTotalOrçado: number;
+  tempoRealHoras: number;
+  custoHoraReal: number;
+  quantidadeReal: number;
+  custoMilheiroReal: number;
+  status?: OperationStatus;
+  realizadoNotas?: string;
 }
 
 export const ProductionLogsView: React.FC<ProductionLogsViewProps> = ({
@@ -81,24 +110,7 @@ export const ProductionLogsView: React.FC<ProductionLogsViewProps> = ({
     }[]
   >([]);
 
-  const [tasksState, setTasksState] = useState<
-    {
-      id: string;
-      operationId: string;
-      order: number;
-      code: string;
-      name: string;
-      machine?: string;
-      hourlyMachineRate: number;
-      hourlyLaborRate: number;
-      tempoAcertoOrçadoHoras: number;
-      tempoProdutivoOrçadoHoras: number;
-      tempoTotalOrçadoHoras: number;
-      totalCostOrçado: number;
-      tempoAcertoRealHoras: number;
-      tempoProdutivoRealHoras: number;
-    }[]
-  >([]);
+  const [processosState, setProcessosState] = useState<ProcessoLogState[]>([]);
 
   const [extrasState, setExtrasState] = useState<{
     despesasAdicionaisOrçadas: number;
@@ -173,42 +185,67 @@ export const ProductionLogsView: React.FC<ProductionLogsViewProps> = ({
     });
     setMaterialsState(initMaterials);
 
-    // 2. Tarefas / Processos do Orçado
-    const baseOps: ProductOperation[] =
-      activeRev?.operations || currentProduct.draftOperations || [];
+    // 2. Máquinas & Tarefas Produtivas do Orçado
+    const baseProcessos: ProductProcessItem[] =
+      activeRev?.processos && activeRev.processos.length > 0
+        ? activeRev.processos
+        : getProductProcesses(currentProduct);
 
-    const initTasks = baseOps.map((op) => {
-      const matchSaved = existingRecord?.tasks.find(
-        (st) => st.operationId === op.id || st.code === op.code
+    const initProcessos: ProcessoLogState[] = baseProcessos.map((proc, idx) => {
+      const matchSaved = existingRecord?.processos?.find(
+        (sp) => sp.id === proc.id || (sp.origemId && sp.origemId === proc.origemId) || sp.nome === proc.nome
       );
 
-      const setupOrçadoH = Number((op.plannedSetupSeconds / 3600).toFixed(4));
-      const prodOrçadoH = Number((op.plannedProductionSeconds / 3600).toFixed(4));
-      const totalOrçadoH = Number((op.plannedTotalSeconds / 3600).toFixed(4));
+      const tempoRealH =
+        matchSaved?.tempoRealHoras !== undefined
+          ? matchSaved.tempoRealHoras
+          : proc.tempoRealHoras !== undefined
+          ? proc.tempoRealHoras
+          : (proc.tempoPrevistoHoras || 0);
 
-      const setupRealH =
-        matchSaved !== undefined ? matchSaved.tempoAcertoRealHoras : setupOrçadoH;
-      const prodRealH =
-        matchSaved !== undefined ? matchSaved.tempoProdutivoRealHoras : prodOrçadoH;
+      const custoHoraR =
+        matchSaved?.custoHoraReal !== undefined
+          ? matchSaved.custoHoraReal
+          : proc.custoHoraReal !== undefined
+          ? proc.custoHoraReal
+          : (proc.custoHora || 0);
+
+      const qtdReal =
+        matchSaved?.quantidadeReal !== undefined
+          ? matchSaved.quantidadeReal
+          : proc.quantidadeReal !== undefined
+          ? proc.quantidadeReal
+          : (proc.quantidadeProducao || currentProduct.quantity || 0);
+
+      const custoMilheiroR =
+        matchSaved?.custoMilheiroReal !== undefined
+          ? matchSaved.custoMilheiroReal
+          : proc.custoMilheiroReal !== undefined
+          ? proc.custoMilheiroReal
+          : (proc.custoMilheiro || 0);
 
       return {
-        id: `task_mirror_${op.id}`,
-        operationId: op.id,
-        order: op.order,
-        code: op.code,
-        name: op.name,
-        machine: op.machine,
-        hourlyMachineRate: op.hourlyMachineRate || 100,
-        hourlyLaborRate: op.hourlyLaborRate || 40,
-        tempoAcertoOrçadoHoras: setupOrçadoH,
-        tempoProdutivoOrçadoHoras: prodOrçadoH,
-        tempoTotalOrçadoHoras: totalOrçadoH,
-        totalCostOrçado: op.plannedTotalCost,
-        tempoAcertoRealHoras: setupRealH,
-        tempoProdutivoRealHoras: prodRealH,
+        id: proc.id || `proc_mirror_${idx}`,
+        origemId: proc.origemId,
+        order: proc.order ?? (idx + 1),
+        tipoItem: proc.tipoItem || 'MAQUINA',
+        nome: proc.nome,
+        descricao: proc.descricao,
+        tipoCobranca: proc.tipoCobranca || 'HORA',
+        tempoPrevistoHoras: proc.tempoPrevistoHoras || 0,
+        custoHora: proc.custoHora || 0,
+        quantidadeProducao: proc.quantidadeProducao || 0,
+        custoMilheiro: proc.custoMilheiro || 0,
+        custoTotalOrçado: proc.custoTotal || 0,
+        tempoRealHoras: tempoRealH,
+        custoHoraReal: custoHoraR,
+        quantidadeReal: qtdReal,
+        custoMilheiroReal: custoMilheiroR,
+        status: matchSaved?.status || proc.status || 'CONCLUIDA',
+        realizadoNotas: matchSaved?.realizadoNotas || proc.realizadoNotas,
       };
     });
-    setTasksState(initTasks);
+    setProcessosState(initProcessos);
 
     // 3. Custos Extras / Despesas Adicionais
     const pricingConfig = activeRev?.pricing || currentProduct.pricing || DEFAULT_PRODUCT_PRICING;
@@ -247,11 +284,13 @@ export const ProductionLogsView: React.FC<ProductionLogsViewProps> = ({
       }))
     );
 
-    setTasksState((prev) =>
-      prev.map((t) => ({
-        ...t,
-        tempoAcertoRealHoras: t.tempoAcertoOrçadoHoras,
-        tempoProdutivoRealHoras: t.tempoProdutivoOrçadoHoras,
+    setProcessosState((prev) =>
+      prev.map((p) => ({
+        ...p,
+        tempoRealHoras: p.tempoPrevistoHoras,
+        custoHoraReal: p.custoHora,
+        quantidadeReal: p.quantidadeProducao,
+        custoMilheiroReal: p.custoMilheiro,
       }))
     );
 
@@ -305,15 +344,21 @@ export const ProductionLogsView: React.FC<ProductionLogsViewProps> = ({
         .toFixed(2)
     );
 
-    // 2. Tarefas: Total Real = (Tempo Acerto Real + Tempo Produtivo Real em Horas) * Valor Hora
-    const totalTarefasOrçado = Number(
-      tasksState.reduce((sum, t) => sum + t.totalCostOrçado, 0).toFixed(2)
+    // 2. Máquinas & Tarefas Produtivas
+    const totalProcessosOrçado = Number(
+      processosState.reduce((sum, p) => sum + (p.custoTotalOrçado || 0), 0).toFixed(2)
     );
-    const totalTarefasReal = Number(
-      tasksState
-        .reduce((sum, t) => {
-          const totalHoras = (t.tempoAcertoRealHoras || 0) + (t.tempoProdutivoRealHoras || 0);
-          return sum + totalHoras * (t.hourlyMachineRate || 0);
+    const totalProcessosReal = Number(
+      processosState
+        .reduce((sum, p) => {
+          const itemRealCost = calculateProcessItemActualCost({
+            tipoCobranca: p.tipoCobranca,
+            tempoRealHoras: p.tempoRealHoras,
+            custoHoraReal: p.custoHoraReal,
+            quantidadeReal: p.quantidadeReal,
+            custoMilheiroReal: p.custoMilheiroReal,
+          });
+          return sum + itemRealCost;
         }, 0)
         .toFixed(2)
     );
@@ -328,10 +373,10 @@ export const ProductionLogsView: React.FC<ProductionLogsViewProps> = ({
 
     // Totais Gerais
     const totalCustoOrçado = Number(
-      (totalMateriaisOrçado + totalTarefasOrçado + totalExtrasOrçado).toFixed(2)
+      (totalMateriaisOrçado + totalProcessosOrçado + totalExtrasOrçado).toFixed(2)
     );
     const totalCustoReal = Number(
-      (totalMateriaisReal + totalTarefasReal + totalExtrasReal).toFixed(2)
+      (totalMateriaisReal + totalProcessosReal + totalExtrasReal).toFixed(2)
     );
 
     const diferencaTotal = Number((totalCustoReal - totalCustoOrçado).toFixed(2));
@@ -345,8 +390,8 @@ export const ProductionLogsView: React.FC<ProductionLogsViewProps> = ({
       currentProduct.activeRevision?.pricing || currentProduct.pricing || DEFAULT_PRODUCT_PRICING;
 
     // Custos de produção Bloco A para markup
-    const custoBlocoAOrçado = totalMateriaisOrçado + totalTarefasOrçado;
-    const custoBlocoAReal = totalMateriaisReal + totalTarefasReal;
+    const custoBlocoAOrçado = totalMateriaisOrçado + totalProcessosOrçado;
+    const custoBlocoAReal = totalMateriaisReal + totalProcessosReal;
 
     const plannedPricing = calculateMarkupAndPricing(
       custoBlocoAOrçado,
@@ -391,8 +436,10 @@ export const ProductionLogsView: React.FC<ProductionLogsViewProps> = ({
     return {
       totalMateriaisOrçado,
       totalMateriaisReal,
-      totalTarefasOrçado,
-      totalTarefasReal,
+      totalProcessosOrçado,
+      totalProcessosReal,
+      totalTarefasOrçado: totalProcessosOrçado,
+      totalTarefasReal: totalProcessosReal,
       totalExtrasOrçado,
       totalExtrasReal,
       totalCustoOrçado,
@@ -413,7 +460,7 @@ export const ProductionLogsView: React.FC<ProductionLogsViewProps> = ({
       custoUnitarioOrçado,
       custoUnitarioReal,
     };
-  }, [materialsState, tasksState, extrasState, currentProduct, deliveredQuantityState]);
+  }, [materialsState, processosState, extrasState, currentProduct, deliveredQuantityState]);
 
   // SALVAR APONTAMENTO REALIZADO (ENTIDADE ActualRecord)
   const handleSaveActualRecord = async () => {
@@ -439,30 +486,36 @@ export const ProductionLogsView: React.FC<ProductionLogsViewProps> = ({
         };
       });
 
-      // Monta as linhas de tarefas
-      const mappedTasks: ActualTaskItem[] = tasksState.map((t) => {
-        const setupR = Number(t.tempoAcertoRealHoras) || 0;
-        const prodR = Number(t.tempoProdutivoRealHoras) || 0;
-        const totalH = Number((setupR + prodR).toFixed(4));
-        const totalC = Number((totalH * (t.hourlyMachineRate || 0)).toFixed(2));
+      // Monta as linhas de processos (Máquinas & Tarefas Produtivas)
+      const mappedProcessos: ProductProcessItem[] = processosState.map((p) => {
+        const cR = calculateProcessItemActualCost({
+          tipoCobranca: p.tipoCobranca,
+          tempoRealHoras: p.tempoRealHoras,
+          custoHoraReal: p.custoHoraReal,
+          quantidadeReal: p.quantidadeReal,
+          custoMilheiroReal: p.custoMilheiroReal,
+        });
 
         return {
-          id: t.id,
-          operationId: t.operationId,
-          order: t.order,
-          code: t.code,
-          name: t.name,
-          machine: t.machine,
-          hourlyMachineRate: t.hourlyMachineRate,
-          hourlyLaborRate: t.hourlyLaborRate,
-          tempoAcertoOrçadoHoras: t.tempoAcertoOrçadoHoras,
-          tempoProdutivoOrçadoHoras: t.tempoProdutivoOrçadoHoras,
-          tempoTotalOrçadoHoras: t.tempoTotalOrçadoHoras,
-          totalCostOrçado: t.totalCostOrçado,
-          tempoAcertoRealHoras: setupR,
-          tempoProdutivoRealHoras: prodR,
-          tempoTotalRealHoras: totalH,
-          totalCostReal: totalC,
+          id: p.id,
+          origemId: p.origemId,
+          order: p.order,
+          tipoItem: p.tipoItem,
+          nome: p.nome,
+          descricao: p.descricao,
+          tipoCobranca: p.tipoCobranca,
+          tempoPrevistoHoras: p.tempoPrevistoHoras,
+          custoHora: p.custoHora,
+          quantidadeProducao: p.quantidadeProducao,
+          custoMilheiro: p.custoMilheiro,
+          custoTotal: p.custoTotalOrçado,
+          tempoRealHoras: p.tempoRealHoras,
+          custoHoraReal: p.custoHoraReal,
+          quantidadeReal: p.quantidadeReal,
+          custoMilheiroReal: p.custoMilheiroReal,
+          custoTotalReal: cR,
+          status: p.status || 'CONCLUIDA',
+          realizadoNotas: p.realizadoNotas,
         };
       });
 
@@ -483,9 +536,12 @@ export const ProductionLogsView: React.FC<ProductionLogsViewProps> = ({
         materials: mappedMaterials,
         totalMateriaisOrçado: calculations.totalMateriaisOrçado,
         totalMateriaisReal: calculations.totalMateriaisReal,
-        tasks: mappedTasks,
-        totalTarefasOrçado: calculations.totalTarefasOrçado,
-        totalTarefasReal: calculations.totalTarefasReal,
+        tasks: [],
+        totalTarefasOrçado: calculations.totalProcessosOrçado ?? 0,
+        totalTarefasReal: calculations.totalProcessosReal ?? 0,
+        processos: mappedProcessos,
+        totalProcessosOrçado: calculations.totalProcessosOrçado ?? 0,
+        totalProcessosReal: calculations.totalProcessosReal ?? 0,
         extras: {
           despesasAdicionaisOrçadas: extrasState.despesasAdicionaisOrçadas,
           despesasAdicionaisReal: extrasState.despesasAdicionaisReal,
@@ -509,8 +565,20 @@ export const ProductionLogsView: React.FC<ProductionLogsViewProps> = ({
         updatedAt: new Date().toISOString(),
       };
 
+      // Atualiza o produto com os processos e o actualRecord sincronizados
+      const updatedProduct: Product = {
+        ...currentProduct,
+        processos: mappedProcessos,
+        actualRecord: actualRecord,
+        updatedAt: new Date().toISOString(),
+      };
+
+      await storage.saveProduct(updatedProduct);
       await storage.saveActualRecord(actualRecord);
       setSaveSuccessMsg('Apontamento de produção registrado com sucesso na base de dados!');
+      onRefresh();
+
+      setTimeout(() => setSaveSuccessMsg(null), 4000);
       onRefresh();
 
       setTimeout(() => setSaveSuccessMsg(null), 4000);
@@ -897,63 +965,87 @@ export const ProductionLogsView: React.FC<ProductionLogsViewProps> = ({
               )}
             </div>
 
-            {/* SEÇÃO 2: TAREFAS / PROCESSOS PRODUTIVOS */}
+            {/* SEÇÃO 2: MÁQUINAS & TAREFAS PRODUTIVAS */}
             <div className="border-b border-gray-200">
-              <div className="p-3 bg-gray-100/70 border-b border-gray-200 flex items-center gap-2">
-                <Layers className="w-4 h-4 text-[#01B8AA]" />
-                <h4 className="text-xs font-bold text-[#374151] uppercase tracking-wider">
-                  2. Tarefas / Processos Produtivos (Horas de Acerto + Produtivo)
-                </h4>
+              <div className="p-3 bg-gray-100/70 border-b border-gray-200 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Cpu className="w-4 h-4 text-[#01B8AA]" />
+                  <h4 className="text-xs font-bold text-[#374151] uppercase tracking-wider">
+                    2. Máquinas & Tarefas Produtivas (Apontamento Orçado x Realizado)
+                  </h4>
+                </div>
+                <span className="text-[11px] font-semibold text-slate-500">
+                  {processosState.length} {processosState.length === 1 ? 'item vinculado' : 'itens vinculados'}
+                </span>
               </div>
 
-              {tasksState.length === 0 ? (
+              {processosState.length === 0 ? (
                 <div className="p-6 text-center text-xs text-gray-400">
-                  Nenhuma tarefa/operação cadastrada neste orçamento.
+                  Nenhuma máquina ou tarefa vinculada neste orçamento.
                 </div>
               ) : (
                 <div className="divide-y divide-gray-100">
-                  {tasksState.map((task, idx) => {
-                    const totalHorasReal = Number(
-                      ((task.tempoAcertoRealHoras || 0) + (task.tempoProdutivoRealHoras || 0)).toFixed(4)
-                    );
-                    const totalReal = Number(
-                      (totalHorasReal * (task.hourlyMachineRate || 0)).toFixed(2)
-                    );
-                    const diff = Number((totalReal - task.totalCostOrçado).toFixed(2));
+                  {processosState.map((processo, idx) => {
+                    const isHora = processo.tipoCobranca === 'HORA';
+                    const totalReal = calculateProcessItemActualCost({
+                      tipoCobranca: processo.tipoCobranca,
+                      tempoRealHoras: processo.tempoRealHoras,
+                      custoHoraReal: processo.custoHoraReal,
+                      quantidadeReal: processo.quantidadeReal,
+                      custoMilheiroReal: processo.custoMilheiroReal,
+                    });
+                    const diff = Number((totalReal - processo.custoTotalOrçado).toFixed(2));
                     const isExcess = diff > 0;
 
                     return (
-                      <div key={task.id} className="grid grid-cols-1 md:grid-cols-2 text-xs">
+                      <div key={processo.id} className="grid grid-cols-1 md:grid-cols-2 text-xs">
                         {/* Lado Esquerdo: ORÇADO (Leitura) */}
-                        <div className="p-3.5 bg-slate-50/80 border-r border-gray-200 flex flex-col justify-between space-y-1">
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <span className="font-mono font-bold text-gray-500 mr-1.5">
-                                #{task.order} {task.code}
+                        <div className="p-3.5 bg-slate-50/80 border-r border-gray-200 flex flex-col justify-between space-y-1.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-mono font-bold text-gray-400">#{processo.order}</span>
+                              <span
+                                className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                                  processo.tipoItem === 'MAQUINA'
+                                    ? 'bg-teal-100 text-teal-800 border border-teal-200'
+                                    : 'bg-indigo-100 text-indigo-800 border border-indigo-200'
+                                }`}
+                              >
+                                {processo.tipoItem === 'MAQUINA' ? 'Máquina' : 'Tarefa'}
                               </span>
-                              <span className="font-bold text-gray-800">{task.name}</span>
+                              <span className="font-bold text-gray-800">{processo.nome}</span>
                             </div>
-                            <span className="text-[11px] font-mono text-gray-600 bg-white px-2 py-0.5 rounded border border-gray-200">
-                              {formatBRL(task.hourlyMachineRate)}/h
+                            <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded bg-white border border-gray-200 text-slate-600 shrink-0">
+                              {isHora ? 'Por Hora' : 'Por Milheiro'}
                             </span>
                           </div>
 
-                          <div className="text-[11px] text-gray-500 truncate mt-0.5">
-                            Máquina: <strong>{task.machine || 'Sem máquina'}</strong>
-                          </div>
+                          {processo.descricao && (
+                            <p className="text-[11px] text-gray-500 line-clamp-1">{processo.descricao}</p>
+                          )}
 
                           <div className="flex items-center justify-between text-gray-600 font-mono text-[11px] pt-1">
-                            <span>
-                              Acerto: <strong>{task.tempoAcertoOrçadoHoras.toFixed(2)}h</strong>
-                            </span>
-                            <span>
-                              Prod: <strong>{task.tempoProdutivoOrçadoHoras.toFixed(2)}h</strong>
-                            </span>
-                            <span>
-                              Total: <strong>{task.tempoTotalOrçadoHoras.toFixed(2)}h</strong>
-                            </span>
+                            {isHora ? (
+                              <>
+                                <span>
+                                  Tempo: <strong>{processo.tempoPrevistoHoras.toFixed(2)}h</strong>
+                                </span>
+                                <span>
+                                  Taxa: <strong>{formatBRL(processo.custoHora)}/h</strong>
+                                </span>
+                              </>
+                            ) : (
+                              <>
+                                <span>
+                                  Produção: <strong>{processo.quantidadeProducao.toLocaleString('pt-BR')} un</strong>
+                                </span>
+                                <span>
+                                  Milheiro: <strong>{formatBRL(processo.custoMilheiro)}/mil</strong>
+                                </span>
+                              </>
+                            )}
                             <span className="text-gray-900 font-bold">
-                              Custo: {formatBRL(task.totalCostOrçado)}
+                              Orçado: {formatBRL(processo.custoTotalOrçado)}
                             </span>
                           </div>
                         </div>
@@ -961,52 +1053,100 @@ export const ProductionLogsView: React.FC<ProductionLogsViewProps> = ({
                         {/* Lado Direito: REALIZADO (Campos de Input) */}
                         <div className="p-3.5 bg-white flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                           <div className="grid grid-cols-2 gap-2 flex-1 w-full">
-                            <div>
-                              <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">
-                                Tempo Acerto REAL (Horas)
-                              </label>
-                              <input
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                value={task.tempoAcertoRealHoras}
-                                onChange={(e) => {
-                                  const val = parseFloat(e.target.value) || 0;
-                                  setTasksState((prev) =>
-                                    prev.map((item, i) =>
-                                      i === idx ? { ...item, tempoAcertoRealHoras: val } : item
-                                    )
-                                  );
-                                }}
-                                className="w-full text-xs font-bold font-mono text-gray-800 border border-gray-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#01B8AA] focus:border-[#01B8AA]"
-                              />
-                            </div>
+                            {isHora ? (
+                              <>
+                                <div>
+                                  <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">
+                                    Tempo Real (Horas)
+                                  </label>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    value={processo.tempoRealHoras}
+                                    onChange={(e) => {
+                                      const val = parseFloat(e.target.value) || 0;
+                                      setProcessosState((prev) =>
+                                        prev.map((item, i) =>
+                                          i === idx ? { ...item, tempoRealHoras: val } : item
+                                        )
+                                      );
+                                    }}
+                                    className="w-full text-xs font-bold font-mono text-gray-800 border border-gray-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#01B8AA] focus:border-[#01B8AA]"
+                                  />
+                                </div>
 
-                            <div>
-                              <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">
-                                Tempo Produtivo REAL (Horas)
-                              </label>
-                              <input
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                value={task.tempoProdutivoRealHoras}
-                                onChange={(e) => {
-                                  const val = parseFloat(e.target.value) || 0;
-                                  setTasksState((prev) =>
-                                    prev.map((item, i) =>
-                                      i === idx ? { ...item, tempoProdutivoRealHoras: val } : item
-                                    )
-                                  );
-                                }}
-                                className="w-full text-xs font-bold font-mono text-gray-800 border border-gray-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#01B8AA] focus:border-[#01B8AA]"
-                              />
-                            </div>
+                                <div>
+                                  <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">
+                                    Custo/Hora Real (R$)
+                                  </label>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    value={processo.custoHoraReal}
+                                    onChange={(e) => {
+                                      const val = parseFloat(e.target.value) || 0;
+                                      setProcessosState((prev) =>
+                                        prev.map((item, i) =>
+                                          i === idx ? { ...item, custoHoraReal: val } : item
+                                        )
+                                      );
+                                    }}
+                                    className="w-full text-xs font-bold font-mono text-gray-800 border border-gray-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#01B8AA] focus:border-[#01B8AA]"
+                                  />
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <div>
+                                  <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">
+                                    Qtd Real Produzida (un)
+                                  </label>
+                                  <input
+                                    type="number"
+                                    step="1"
+                                    min="0"
+                                    value={processo.quantidadeReal}
+                                    onChange={(e) => {
+                                      const val = parseFloat(e.target.value) || 0;
+                                      setProcessosState((prev) =>
+                                        prev.map((item, i) =>
+                                          i === idx ? { ...item, quantidadeReal: val } : item
+                                        )
+                                      );
+                                    }}
+                                    className="w-full text-xs font-bold font-mono text-gray-800 border border-gray-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#01B8AA] focus:border-[#01B8AA]"
+                                  />
+                                </div>
+
+                                <div>
+                                  <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">
+                                    Custo/Milheiro Real (R$)
+                                  </label>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    value={processo.custoMilheiroReal}
+                                    onChange={(e) => {
+                                      const val = parseFloat(e.target.value) || 0;
+                                      setProcessosState((prev) =>
+                                        prev.map((item, i) =>
+                                          i === idx ? { ...item, custoMilheiroReal: val } : item
+                                        )
+                                      );
+                                    }}
+                                    className="w-full text-xs font-bold font-mono text-gray-800 border border-gray-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#01B8AA] focus:border-[#01B8AA]"
+                                  />
+                                </div>
+                              </>
+                            )}
                           </div>
 
                           <div className="text-right shrink-0 min-w-[130px]">
                             <span className="text-[10px] font-bold text-gray-400 block uppercase">
-                              Total Real ({totalHorasReal.toFixed(2)}h)
+                              Total Real ({isHora ? `${processo.tempoRealHoras.toFixed(2)}h` : `${processo.quantidadeReal.toLocaleString('pt-BR')} un`})
                             </span>
                             <span className="text-sm font-bold font-mono text-[#00897B]">
                               {formatBRL(totalReal)}
@@ -1024,15 +1164,15 @@ export const ProductionLogsView: React.FC<ProductionLogsViewProps> = ({
                     );
                   })}
 
-                  {/* Subtotal de Tarefas Espelhado */}
+                  {/* Subtotal de Máquinas & Tarefas Espelhado */}
                   <div className="grid grid-cols-1 md:grid-cols-2 bg-gray-50/90 font-bold text-xs border-t border-gray-200">
                     <div className="p-3 border-r border-gray-200 flex justify-between items-center text-gray-700">
-                      <span>Subtotal Tarefas (Orçado):</span>
-                      <span className="font-mono text-sm">{formatBRL(calculations.totalTarefasOrçado)}</span>
+                      <span>Subtotal Máquinas & Tarefas (Orçado):</span>
+                      <span className="font-mono text-sm">{formatBRL(calculations.totalProcessosOrçado)}</span>
                     </div>
                     <div className="p-3 flex justify-between items-center text-[#00897B]">
-                      <span>Subtotal Tarefas (Realizado):</span>
-                      <span className="font-mono text-sm">{formatBRL(calculations.totalTarefasReal)}</span>
+                      <span>Subtotal Máquinas & Tarefas (Realizado):</span>
+                      <span className="font-mono text-sm">{formatBRL(calculations.totalProcessosReal)}</span>
                     </div>
                   </div>
                 </div>
