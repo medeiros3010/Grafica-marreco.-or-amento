@@ -16,6 +16,7 @@ import {
   formatBRLUnit,
   formatPercent,
   formatSecondsToTime,
+  formatHoursToHMin,
 } from '../../services/calculator';
 import { storage } from '../../services/storage';
 import { OperationStatusBadge, ProductStatusBadge } from '../common/Badge';
@@ -942,9 +943,14 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
                             <div className="font-bold text-gray-900">{formatBRL(orçadoCost)}</div>
                             <div className="text-[11px] text-gray-500">
                               {isHora
-                                ? `${proc.tempoPrevistoHoras.toFixed(2)}h @ ${formatBRL(proc.custoHora)}/h`
+                                ? `${formatHoursToHMin(proc.tempoPrevistoHoras)} (${proc.tempoPrevistoHoras.toFixed(2)}h) @ ${formatBRL(proc.custoHora)}/h`
                                 : `${proc.quantidadeProducao.toLocaleString('pt-BR')} un @ ${formatBRL(proc.custoMilheiro)}/mil`}
                             </div>
+                            {isHora && (proc.tempoProdutivoHoras !== undefined || proc.tempoAcertoHoras !== undefined || proc.tempoExtraHoras !== undefined) && (
+                              <div className="text-[10px] text-gray-400 mt-0.5">
+                                P: {formatHoursToHMin(proc.tempoProdutivoHoras)} · A: {formatHoursToHMin(proc.tempoAcertoHoras)} · E: {formatHoursToHMin(proc.tempoExtraHoras)}
+                              </div>
+                            )}
                           </td>
 
                           {/* Realizado */}
@@ -952,9 +958,14 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
                             <div className="font-bold text-[#00897B]">{formatBRL(realCost)}</div>
                             <div className="text-[11px] text-gray-500">
                               {isHora
-                                ? `${(proc.tempoRealHoras ?? proc.tempoPrevistoHoras).toFixed(2)}h @ ${formatBRL(proc.custoHoraReal ?? proc.custoHora)}/h`
+                                ? `${formatHoursToHMin(proc.tempoRealHoras ?? proc.tempoPrevistoHoras)} (${(proc.tempoRealHoras ?? proc.tempoPrevistoHoras).toFixed(2)}h) @ ${formatBRL(proc.custoHoraReal ?? proc.custoHora)}/h`
                                 : `${(proc.quantidadeReal ?? proc.quantidadeProducao).toLocaleString('pt-BR')} un @ ${formatBRL(proc.custoMilheiroReal ?? proc.custoMilheiro)}/mil`}
                             </div>
+                            {isHora && (proc.tempoProdutivoRealHoras !== undefined || proc.tempoAcertoRealHoras !== undefined || proc.tempoExtraRealHoras !== undefined) && (
+                              <div className="text-[10px] text-teal-600 mt-0.5">
+                                P: {formatHoursToHMin(proc.tempoProdutivoRealHoras)} · A: {formatHoursToHMin(proc.tempoAcertoRealHoras)} · E: {formatHoursToHMin(proc.tempoExtraRealHoras)}
+                              </div>
+                            )}
                           </td>
 
                           {/* Diferença Financeira */}

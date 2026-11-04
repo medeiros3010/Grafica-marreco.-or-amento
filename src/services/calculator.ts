@@ -62,6 +62,54 @@ export function formatSecondsToTime(totalSeconds: number): string {
   return isNegative ? `-${formatted}` : formatted;
 }
 
+/**
+ * Converte horas e minutos para horas decimais.
+ * Exemplo: 2h e 30m -> 2.5 horas
+ * Exemplo: 0h e 45m -> 0.75 horas
+ * Exemplo: 0h e 15m -> 0.25 horas
+ */
+export function hoursMinutesToDecimal(hours: number, minutes: number): number {
+  const h = Math.max(0, Number(hours) || 0);
+  const m = Math.max(0, Number(minutes) || 0);
+  return Number((h + m / 60).toFixed(4));
+}
+
+/**
+ * Converte horas decimais para horas e minutos inteiros.
+ * Exemplo: 2.5 -> { hours: 2, minutes: 30 }
+ * Exemplo: 0.75 -> { hours: 0, minutes: 45 }
+ * Exemplo: 3.5 -> { hours: 3, minutes: 30 }
+ */
+export function decimalToHoursMinutes(decimalHours: number | null | undefined): { hours: number; minutes: number } {
+  if (!decimalHours || isNaN(decimalHours) || decimalHours <= 0) {
+    return { hours: 0, minutes: 0 };
+  }
+  const totalMin = Math.round(decimalHours * 60);
+  const hours = Math.floor(totalMin / 60);
+  const minutes = totalMin % 60;
+  return { hours, minutes };
+}
+
+/**
+ * Formata horas decimais no padrão "XhYY" ou "Xh YYm"
+ * Exemplo: 2.5 -> "2h30"
+ * Exemplo: 0.75 -> "0h45"
+ * Exemplo: 0.25 -> "0h15"
+ * Exemplo: 3.5 -> "3h30"
+ */
+export function formatHoursToHMin(decimalHours: number | null | undefined): string {
+  if (decimalHours === null || decimalHours === undefined || isNaN(decimalHours) || decimalHours === 0) {
+    return '0h00';
+  }
+  const isNegative = decimalHours < 0;
+  const abs = Math.abs(decimalHours);
+  const totalMin = Math.round(abs * 60);
+  const hours = Math.floor(totalMin / 60);
+  const minutes = totalMin % 60;
+  const formatted = `${hours}h${minutes < 10 ? '0' : ''}${minutes}`;
+  return isNegative ? `-${formatted}` : formatted;
+}
+
 // ==========================================
 // FORMATAÇÃO MONETÁRIA E NUMÉRICA (pt-BR)
 // ==========================================
@@ -255,11 +303,14 @@ export function calculateOperationCosts(params: {
 
 /**
  * Calcula o custo orçado de um item de Máquina ou Tarefa Produtiva:
- * - Custo por Hora: tempo previsto de utilização (horas) * custo cadastrado por hora
+ * - Custo por Hora: Tempo Total (Tempo Produtivo + Tempo de Acerto + Tempo Extra) * custo cadastrado por hora
  * - Custo por Milheiro: (quantidade prevista de produção / 1000) * custo por milheiro
  */
 export function calculateProcessItemCost(item: {
   tipoCobranca: BillingUnitType;
+  tempoProdutivoHoras?: number;
+  tempoAcertoHoras?: number;
+  tempoExtraHoras?: number;
   tempoPrevistoHoras?: number;
   custoHora?: number;
   quantidadeProducao?: number;
@@ -270,22 +321,41 @@ export function calculateProcessItemCost(item: {
     const rate = Math.max(0, Number(item.custoMilheiro) || 0);
     return Number(((qty / 1000) * rate).toFixed(2));
   } else {
-    // HORA
-    const hours = Math.max(0, Number(item.tempoPrevistoHoras) || 0);
+    // HORA:
+    // Fórmula: Tempo Total = Tempo Produtivo + Tempo de Acerto + Tempo Extra
+    const hasParts =
+      item.tempoProdutivoHoras !== undefined ||
+      item.tempoAcertoHoras !== undefined ||
+      item.tempoExtraHoras !== undefined;
+
+    const totalHours = hasParts
+      ? (Number(item.tempoProdutivoHoras) || 0) +
+        (Number(item.tempoAcertoHoras) || 0) +
+        (Number(item.tempoExtraHoras) || 0)
+      : Number(item.tempoPrevistoHoras) || 0;
+
     const rate = Math.max(0, Number(item.custoHora) || 0);
-    return Number((hours * rate).toFixed(2));
+    return Number((Math.max(0, totalHours) * rate).toFixed(2));
   }
 }
 
 /**
  * Calcula o custo realizado de um item de Máquina ou Tarefa Produtiva:
+ * - Custo por Hora: Tempo Total Real (Produtivo Real + Acerto Real + Extra Real) * custo por hora real
+ * - Custo por Milheiro: (quantidade real / 1000) * custo por milheiro real
  */
 export function calculateProcessItemActualCost(item: {
   tipoCobranca: BillingUnitType;
+  tempoProdutivoHoras?: number;
+  tempoAcertoHoras?: number;
+  tempoExtraHoras?: number;
   tempoPrevistoHoras?: number;
   custoHora?: number;
   quantidadeProducao?: number;
   custoMilheiro?: number;
+  tempoProdutivoRealHoras?: number;
+  tempoAcertoRealHoras?: number;
+  tempoExtraRealHoras?: number;
   tempoRealHoras?: number;
   custoHoraReal?: number;
   quantidadeReal?: number;
@@ -300,9 +370,23 @@ export function calculateProcessItemActualCost(item: {
     const rate = item.custoMilheiroReal !== undefined ? Number(item.custoMilheiroReal) : (Number(item.custoMilheiro) || 0);
     return Number(((Math.max(0, qty) / 1000) * Math.max(0, rate)).toFixed(2));
   } else {
-    const hours = item.tempoRealHoras !== undefined ? Number(item.tempoRealHoras) : (Number(item.tempoPrevistoHoras) || 0);
+    const hasActualParts =
+      item.tempoProdutivoRealHoras !== undefined ||
+      item.tempoAcertoRealHoras !== undefined ||
+      item.tempoExtraRealHoras !== undefined;
+
+    const totalRealHours = hasActualParts
+      ? (Number(item.tempoProdutivoRealHoras) || 0) +
+        (Number(item.tempoAcertoRealHoras) || 0) +
+        (Number(item.tempoExtraRealHoras) || 0)
+      : item.tempoRealHoras !== undefined
+      ? Number(item.tempoRealHoras)
+      : (item.tempoProdutivoHoras || 0) + (item.tempoAcertoHoras || 0) + (item.tempoExtraHoras || 0) > 0
+      ? (Number(item.tempoProdutivoHoras) || 0) + (Number(item.tempoAcertoHoras) || 0) + (Number(item.tempoExtraHoras) || 0)
+      : Number(item.tempoPrevistoHoras) || 0;
+
     const rate = item.custoHoraReal !== undefined ? Number(item.custoHoraReal) : (Number(item.custoHora) || 0);
-    return Number((Math.max(0, hours) * Math.max(0, rate)).toFixed(2));
+    return Number((Math.max(0, totalRealHours) * Math.max(0, rate)).toFixed(2));
   }
 }
 

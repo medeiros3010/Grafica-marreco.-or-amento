@@ -241,20 +241,27 @@ export interface ProductProcessItem {
   tipoCobranca: BillingUnitType; // 'HORA' (Custo por Hora) ou 'MILHEIRO' (Custo por Milheiro)
   
   // Parâmetros se tipoCobranca === 'HORA'
-  tempoPrevistoHoras: number; // Tempo previsto de utilização em horas (ex: 2.5)
-  custoHora: number; // Custo R$/hora cadastrado/aplicado
+  // Divisão do tempo de utilização (independentes e editáveis):
+  tempoProdutivoHoras?: number; // Tempo efetivamente utilizado na produção
+  tempoAcertoHoras?: number;    // Tempo necessário para preparação, regulagem, ajustes e acerto da máquina
+  tempoExtraHoras?: number;     // Tempo adicional de utilização da máquina além de produtivo e acerto
+  tempoPrevistoHoras: number;   // Tempo Total = Produtivo + Acerto + Extra (ou tempo total legado)
+  custoHora: number;            // Custo R$/hora cadastrado/aplicado
   
   // Parâmetros se tipoCobranca === 'MILHEIRO'
   quantidadeProducao: number; // Quantidade prevista de produção (ex: 5.000 un)
   custoMilheiro: number; // Custo R$ por 1.000 unidades
   
   // Custo Total Orçado deste item:
-  // Se HORA: tempoPrevistoHoras * custoHora
+  // Se HORA: Tempo Total (tempoPrevistoHoras) * custoHora
   // Se MILHEIRO: (quantidadeProducao / 1000) * custoMilheiro
   custoTotal: number;
 
   // Realizado efetivo (para comparativo no Apontamento e Pós-Cálculo)
-  tempoRealHoras?: number;
+  tempoProdutivoRealHoras?: number; // Tempo Produtivo Real
+  tempoAcertoRealHoras?: number;    // Tempo de Acerto Real
+  tempoExtraRealHoras?: number;     // Tempo Extra Real
+  tempoRealHoras?: number;          // Tempo Total Real = Produtivo Real + Acerto Real + Extra Real
   custoHoraReal?: number;
   quantidadeReal?: number;
   custoMilheiroReal?: number;

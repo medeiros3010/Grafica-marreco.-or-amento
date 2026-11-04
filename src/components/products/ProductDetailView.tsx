@@ -23,6 +23,7 @@ import {
   calculateMarkupAndPricing,
   getProductProcesses,
   calculateProcessItemCost,
+  formatHoursToHMin,
 } from '../../services/calculator';
 import { ProductStatusBadge } from '../common/Badge';
 import { AddProcessModal } from './AddProcessModal';
@@ -767,9 +768,26 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
 
                         <td className="py-2.5 px-4 text-right font-mono text-gray-700">
                           {isHora ? (
-                            <span>
-                              <strong>{proc.tempoPrevistoHoras}h</strong> × {formatBRL(proc.custoHora)}/h
-                            </span>
+                            <div>
+                              <div>
+                                <strong className="text-gray-900">{formatHoursToHMin(proc.tempoPrevistoHoras)}</strong> ({proc.tempoPrevistoHoras.toFixed(2)}h) × {formatBRL(proc.custoHora)}/h
+                              </div>
+                              {(proc.tempoProdutivoHoras !== undefined || proc.tempoAcertoHoras !== undefined || proc.tempoExtraHoras !== undefined) && (
+                                <div className="text-[10px] text-gray-500 mt-0.5 space-x-1">
+                                  <span className="text-blue-700 font-semibold" title="Tempo Produtivo">
+                                    Prod: {formatHoursToHMin(proc.tempoProdutivoHoras)}
+                                  </span>
+                                  <span>·</span>
+                                  <span className="text-amber-700 font-semibold" title="Tempo de Acerto">
+                                    Acerto: {formatHoursToHMin(proc.tempoAcertoHoras)}
+                                  </span>
+                                  <span>·</span>
+                                  <span className="text-purple-700 font-semibold" title="Tempo Extra">
+                                    Extra: {formatHoursToHMin(proc.tempoExtraHoras)}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
                           ) : (
                             <span>
                               <strong>{proc.quantidadeProducao.toLocaleString('pt-BR')} un</strong> × {formatBRL(proc.custoMilheiro)}/milheiro

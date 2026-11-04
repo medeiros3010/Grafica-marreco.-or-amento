@@ -11,6 +11,9 @@ import {
   computeOperationActuals,
   computeProductComparisonSummary,
   formatSecondsToTime,
+  calculateProcessItemCost,
+  hoursMinutesToDecimal,
+  formatHoursToHMin,
 } from './calculator';
 import { storage } from './storage';
 import { ProductOperation, ProductionLog, StandardTask, ActualRecord, Product } from '../types';
@@ -574,7 +577,7 @@ export async function runAllValidationTests(): Promise<TestResult[]> {
           setupTimeSeconds: 3600,
           plannedQuantity: 40000,
           hourlyLaborRate: 50.0,
-          hourlyMachineRate: 200.0,
+          hourlyMachineRate: 150.0,
           laborConcurrencyMultiplier: 1,
           machineConcurrencyMultiplier: 1,
           materialPlannedCost: 0,
@@ -807,6 +810,77 @@ export async function runAllValidationTests(): Promise<TestResult[]> {
       actual: `Orçamento Excluído: ${isProductGone} | Logs em Cascata Limpos: ${areLogsCascadeCleaned} | Tarefa Excluída: ${isTaskGone} | Máquinas & Insumos Intactos: ${machPreserved && matPreserved}`,
       passed,
       details: 'Sem lixeira intermediária: a exclusão é definitiva, não deixa órfãos no banco e respeita integralmente os dados mestres pré-existentes.',
+    });
+  }
+
+  // 16. Divisão do Tempo de Utilização de Máquinas (Produtivo + Acerto + Extra = Total)
+  {
+    // Exemplo especificado pelo usuário:
+    // Custo da máquina: R$ 120,00/h
+    // Tempo Produtivo: 2h30 (2.5h)
+    // Tempo de Acerto: 0h45 (0.75h)
+    // Tempo Extra: 0h15 (0.25h)
+    // Tempo Total: 3h30 (3.5h)
+    // Custo total: R$ 420,00
+    const prodH = hoursMinutesToDecimal(2, 30); // 2.5h
+    const acertoH = hoursMinutesToDecimal(0, 45); // 0.75h
+    const extraH = hoursMinutesToDecimal(0, 15); // 0.25h
+    const tempoTotalHoras = Number((prodH + acertoH + extraH).toFixed(4)); // 3.5h
+    const custoHora = 120.0;
+
+    const custoTotal = calculateProcessItemCost({
+      tipoCobranca: 'HORA',
+      tempoProdutivoHoras: prodH,
+      tempoAcertoHoras: acertoH,
+      tempoExtraHoras: extraH,
+      tempoPrevistoHoras: tempoTotalHoras,
+      custoHora,
+    });
+
+    const passed =
+      prodH === 2.5 &&
+      acertoH === 0.75 &&
+      extraH === 0.25 &&
+      tempoTotalHoras === 3.5 &&
+      formatHoursToHMin(tempoTotalHoras) === '3h30' &&
+      custoTotal === 420.0;
+
+    results.push({
+      id: 16,
+      title: 'Divisão do Tempo de Utilização das Máquinas no Orçamento',
+      scenario: 'Máquina R$ 120,00/h com Tempo Produtivo 2h30, Tempo de Acerto 0h45 e Tempo Extra 0h15',
+      expected: 'Tempo Total: 3h30 (3,50h) | Custo Total da Máquina: R$ 420,00',
+      actual: `Tempo Total: ${formatHoursToHMin(tempoTotalHoras)} (${tempoTotalHoras.toFixed(2)}h) | Custo Total: R$ ${custoTotal.toFixed(2)}`,
+      passed,
+      details: 'Fórmula Tempo Total = Produtivo + Acerto + Extra respeitada e multiplicada pelo custo hora cadastrado.',
+    });
+  }
+
+  // 17. Preservação Total dos Cadastros Mestres e Orçamento do Catálogo Arte & Design
+  {
+    const allMaterials = await storage.getAllMaterials();
+    const allMachines = await storage.getAllMachines();
+    const allTasks = await storage.getAllTasks();
+    const allProducts = await storage.getAllProducts();
+
+    const hasMaterials = allMaterials.length >= 7;
+    const hasMachines = allMachines.length >= 6;
+    const hasTasks = allTasks.length >= 8;
+    const catalogo = allProducts.find(
+      (p) => p.id === 'prod_catalogo_luxo_2026' || p.name.includes('Arte & Design')
+    );
+    const hasCatalogo = !!catalogo && (catalogo.materials?.length ?? 0) > 0;
+
+    const passed = hasMaterials && hasMachines && hasTasks && hasCatalogo;
+
+    results.push({
+      id: 17,
+      title: 'Preservação Integral de Dados Cadastrais e Orçamento do Catálogo',
+      scenario: 'Verificação de não-destruição: Matérias-Primas, Máquinas, Tarefas e Catálogo Arte & Design',
+      expected: 'Insumos >= 7, Máquinas >= 6, Tarefas >= 8, Catálogo Arte & Design 32p presente com insumos e processos',
+      actual: `Insumos: ${allMaterials.length} | Máquinas: ${allMachines.length} | Tarefas: ${allTasks.length} | Catálogo Preservado: ${hasCatalogo ? 'SIM' : 'NÃO'}`,
+      passed,
+      details: 'Garante que nenhuma modificação de código apagou, reinicializou ou corrompeu os cadastros reais existentes.',
     });
   }
 

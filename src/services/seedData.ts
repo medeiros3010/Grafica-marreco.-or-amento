@@ -326,11 +326,17 @@ export const SEED_PRODUCT_PROCESSOS: ProductProcessItem[] = [
     nome: 'Heidelberg Speedmaster SM 74 (4 Cores)',
     descricao: 'Impressão offset 4x4 cores de cadernos e capa',
     tipoCobranca: 'HORA',
-    tempoPrevistoHoras: 4.5,
+    tempoProdutivoHoras: 2.5, // 2h30
+    tempoAcertoHoras: 1.5,    // 1h30
+    tempoExtraHoras: 0.5,     // 0h30
+    tempoPrevistoHoras: 4.5,  // 4h30 (Total = 2.5 + 1.5 + 0.5)
     custoHora: 220.0,
     quantidadeProducao: 0,
     custoMilheiro: 0,
     custoTotal: 990.0,
+    tempoProdutivoRealHoras: 2.5,
+    tempoAcertoRealHoras: 1.8,
+    tempoExtraRealHoras: 0.5,
     tempoRealHoras: 4.8,
     custoHoraReal: 220.0,
     quantidadeReal: 0,
@@ -347,11 +353,17 @@ export const SEED_PRODUCT_PROCESSOS: ProductProcessItem[] = [
     nome: 'Guilhotina Polar Mohr 115 Plus',
     descricao: 'Esquadrejamento de folhas inteiras e refile final',
     tipoCobranca: 'HORA',
-    tempoPrevistoHoras: 2.0,
+    tempoProdutivoHoras: 1.5, // 1h30
+    tempoAcertoHoras: 0.5,    // 0h30
+    tempoExtraHoras: 0.0,     // 0h00
+    tempoPrevistoHoras: 2.0,  // 2h00 (Total = 1.5 + 0.5 + 0.0)
     custoHora: 182.54,
     quantidadeProducao: 0,
     custoMilheiro: 0,
     custoTotal: 365.08,
+    tempoProdutivoRealHoras: 1.3,
+    tempoAcertoRealHoras: 0.5,
+    tempoExtraRealHoras: 0.0,
     tempoRealHoras: 1.8,
     custoHoraReal: 182.54,
     quantidadeReal: 0,
@@ -387,11 +399,17 @@ export const SEED_PRODUCT_PROCESSOS: ProductProcessItem[] = [
     nome: 'Dobra Automática de Cadernos 16 Páginas',
     descricao: 'Formação dos cadernos 16 páginas do miolo',
     tipoCobranca: 'HORA',
-    tempoPrevistoHoras: 3.0,
+    tempoProdutivoHoras: 2.25, // 2h15
+    tempoAcertoHoras: 0.5,     // 0h30
+    tempoExtraHoras: 0.25,     // 0h15
+    tempoPrevistoHoras: 3.0,   // 3h00 (Total = 2.25 + 0.5 + 0.25)
     custoHora: 75.0,
     quantidadeProducao: 0,
     custoMilheiro: 0,
     custoTotal: 225.0,
+    tempoProdutivoRealHoras: 2.1,
+    tempoAcertoRealHoras: 0.5,
+    tempoExtraRealHoras: 0.2,
     tempoRealHoras: 2.8,
     custoHoraReal: 75.0,
     quantidadeReal: 0,

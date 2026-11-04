@@ -28,6 +28,7 @@ import {
   getProductProcesses,
   calculateProcessItemCost,
   calculateProcessItemActualCost,
+  formatHoursToHMin,
 } from '../../services/calculator';
 import { storage } from '../../services/storage';
 import { ProductStatusBadge } from '../common/Badge';
@@ -70,11 +71,17 @@ export interface ProcessoLogState {
   nome: string;
   descricao?: string;
   tipoCobranca: 'HORA' | 'MILHEIRO';
+  tempoProdutivoHoras?: number;
+  tempoAcertoHoras?: number;
+  tempoExtraHoras?: number;
   tempoPrevistoHoras: number;
   custoHora: number;
   quantidadeProducao: number;
   custoMilheiro: number;
   custoTotalOrçado: number;
+  tempoProdutivoRealHoras?: number;
+  tempoAcertoRealHoras?: number;
+  tempoExtraRealHoras?: number;
   tempoRealHoras: number;
   custoHoraReal: number;
   quantidadeReal: number;
@@ -196,12 +203,35 @@ export const ProductionLogsView: React.FC<ProductionLogsViewProps> = ({
         (sp) => sp.id === proc.id || (sp.origemId && sp.origemId === proc.origemId) || sp.nome === proc.nome
       );
 
+      const tempoProdRealH =
+        matchSaved?.tempoProdutivoRealHoras !== undefined
+          ? matchSaved.tempoProdutivoRealHoras
+          : proc.tempoProdutivoRealHoras !== undefined
+          ? proc.tempoProdutivoRealHoras
+          : (proc.tempoProdutivoHoras !== undefined ? proc.tempoProdutivoHoras : proc.tempoPrevistoHoras || 0);
+
+      const tempoAcertoRealH =
+        matchSaved?.tempoAcertoRealHoras !== undefined
+          ? matchSaved.tempoAcertoRealHoras
+          : proc.tempoAcertoRealHoras !== undefined
+          ? proc.tempoAcertoRealHoras
+          : (proc.tempoAcertoHoras || 0);
+
+      const tempoExtraRealH =
+        matchSaved?.tempoExtraRealHoras !== undefined
+          ? matchSaved.tempoExtraRealHoras
+          : proc.tempoExtraRealHoras !== undefined
+          ? proc.tempoExtraRealHoras
+          : (proc.tempoExtraHoras || 0);
+
       const tempoRealH =
         matchSaved?.tempoRealHoras !== undefined
           ? matchSaved.tempoRealHoras
           : proc.tempoRealHoras !== undefined
           ? proc.tempoRealHoras
-          : (proc.tempoPrevistoHoras || 0);
+          : ((tempoProdRealH + tempoAcertoRealH + tempoExtraRealH) > 0
+              ? Number((tempoProdRealH + tempoAcertoRealH + tempoExtraRealH).toFixed(4))
+              : (proc.tempoPrevistoHoras || 0));
 
       const custoHoraR =
         matchSaved?.custoHoraReal !== undefined
@@ -232,11 +262,17 @@ export const ProductionLogsView: React.FC<ProductionLogsViewProps> = ({
         nome: proc.nome,
         descricao: proc.descricao,
         tipoCobranca: proc.tipoCobranca || 'HORA',
+        tempoProdutivoHoras: proc.tempoProdutivoHoras,
+        tempoAcertoHoras: proc.tempoAcertoHoras,
+        tempoExtraHoras: proc.tempoExtraHoras,
         tempoPrevistoHoras: proc.tempoPrevistoHoras || 0,
         custoHora: proc.custoHora || 0,
         quantidadeProducao: proc.quantidadeProducao || 0,
         custoMilheiro: proc.custoMilheiro || 0,
         custoTotalOrçado: proc.custoTotal || 0,
+        tempoProdutivoRealHoras: tempoProdRealH,
+        tempoAcertoRealHoras: tempoAcertoRealH,
+        tempoExtraRealHoras: tempoExtraRealH,
         tempoRealHoras: tempoRealH,
         custoHoraReal: custoHoraR,
         quantidadeReal: qtdReal,
@@ -287,6 +323,9 @@ export const ProductionLogsView: React.FC<ProductionLogsViewProps> = ({
     setProcessosState((prev) =>
       prev.map((p) => ({
         ...p,
+        tempoProdutivoRealHoras: p.tempoProdutivoHoras !== undefined ? p.tempoProdutivoHoras : p.tempoPrevistoHoras,
+        tempoAcertoRealHoras: p.tempoAcertoHoras || 0,
+        tempoExtraRealHoras: p.tempoExtraHoras || 0,
         tempoRealHoras: p.tempoPrevistoHoras,
         custoHoraReal: p.custoHora,
         quantidadeReal: p.quantidadeProducao,
@@ -490,6 +529,13 @@ export const ProductionLogsView: React.FC<ProductionLogsViewProps> = ({
       const mappedProcessos: ProductProcessItem[] = processosState.map((p) => {
         const cR = calculateProcessItemActualCost({
           tipoCobranca: p.tipoCobranca,
+          tempoProdutivoHoras: p.tempoProdutivoHoras,
+          tempoAcertoHoras: p.tempoAcertoHoras,
+          tempoExtraHoras: p.tempoExtraHoras,
+          tempoPrevistoHoras: p.tempoPrevistoHoras,
+          tempoProdutivoRealHoras: p.tempoProdutivoRealHoras,
+          tempoAcertoRealHoras: p.tempoAcertoRealHoras,
+          tempoExtraRealHoras: p.tempoExtraRealHoras,
           tempoRealHoras: p.tempoRealHoras,
           custoHoraReal: p.custoHoraReal,
           quantidadeReal: p.quantidadeReal,
@@ -504,11 +550,17 @@ export const ProductionLogsView: React.FC<ProductionLogsViewProps> = ({
           nome: p.nome,
           descricao: p.descricao,
           tipoCobranca: p.tipoCobranca,
+          tempoProdutivoHoras: p.tempoProdutivoHoras,
+          tempoAcertoHoras: p.tempoAcertoHoras,
+          tempoExtraHoras: p.tempoExtraHoras,
           tempoPrevistoHoras: p.tempoPrevistoHoras,
           custoHora: p.custoHora,
           quantidadeProducao: p.quantidadeProducao,
           custoMilheiro: p.custoMilheiro,
           custoTotal: p.custoTotalOrçado,
+          tempoProdutivoRealHoras: p.tempoProdutivoRealHoras,
+          tempoAcertoRealHoras: p.tempoAcertoRealHoras,
+          tempoExtraRealHoras: p.tempoExtraRealHoras,
           tempoRealHoras: p.tempoRealHoras,
           custoHoraReal: p.custoHoraReal,
           quantidadeReal: p.quantidadeReal,
@@ -989,6 +1041,13 @@ export const ProductionLogsView: React.FC<ProductionLogsViewProps> = ({
                     const isHora = processo.tipoCobranca === 'HORA';
                     const totalReal = calculateProcessItemActualCost({
                       tipoCobranca: processo.tipoCobranca,
+                      tempoProdutivoHoras: processo.tempoProdutivoHoras,
+                      tempoAcertoHoras: processo.tempoAcertoHoras,
+                      tempoExtraHoras: processo.tempoExtraHoras,
+                      tempoPrevistoHoras: processo.tempoPrevistoHoras,
+                      tempoProdutivoRealHoras: processo.tempoProdutivoRealHoras,
+                      tempoAcertoRealHoras: processo.tempoAcertoRealHoras,
+                      tempoExtraRealHoras: processo.tempoExtraRealHoras,
                       tempoRealHoras: processo.tempoRealHoras,
                       custoHoraReal: processo.custoHoraReal,
                       quantidadeReal: processo.quantidadeReal,
@@ -1000,7 +1059,7 @@ export const ProductionLogsView: React.FC<ProductionLogsViewProps> = ({
                     return (
                       <div key={processo.id} className="grid grid-cols-1 md:grid-cols-2 text-xs">
                         {/* Lado Esquerdo: ORÇADO (Leitura) */}
-                        <div className="p-3.5 bg-slate-50/80 border-r border-gray-200 flex flex-col justify-between space-y-1.5">
+                        <div className="p-3.5 bg-slate-50/80 border-r border-gray-200 flex flex-col justify-between space-y-2">
                           <div className="flex items-center justify-between gap-2">
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <span className="font-mono font-bold text-gray-400">#{processo.order}</span>
@@ -1024,81 +1083,203 @@ export const ProductionLogsView: React.FC<ProductionLogsViewProps> = ({
                             <p className="text-[11px] text-gray-500 line-clamp-1">{processo.descricao}</p>
                           )}
 
-                          <div className="flex items-center justify-between text-gray-600 font-mono text-[11px] pt-1">
+                          <div className="text-gray-600 font-mono text-[11px] pt-1 space-y-1">
                             {isHora ? (
                               <>
-                                <span>
-                                  Tempo: <strong>{processo.tempoPrevistoHoras.toFixed(2)}h</strong>
-                                </span>
-                                <span>
-                                  Taxa: <strong>{formatBRL(processo.custoHora)}/h</strong>
-                                </span>
+                                <div className="flex items-center justify-between">
+                                  <span>
+                                    Tempo Total: <strong className="text-gray-900">{formatHoursToHMin(processo.tempoPrevistoHoras)}</strong> ({processo.tempoPrevistoHoras.toFixed(2)}h)
+                                  </span>
+                                  <span>
+                                    Taxa: <strong>{formatBRL(processo.custoHora)}/h</strong>
+                                  </span>
+                                </div>
+                                {(processo.tempoProdutivoHoras !== undefined || processo.tempoAcertoHoras !== undefined || processo.tempoExtraHoras !== undefined) && (
+                                  <div className="text-[10px] text-gray-500 flex items-center gap-1.5 flex-wrap">
+                                    <span className="text-blue-700 font-semibold">
+                                      Prod: {formatHoursToHMin(processo.tempoProdutivoHoras)}
+                                    </span>
+                                    <span>·</span>
+                                    <span className="text-amber-700 font-semibold">
+                                      Acerto: {formatHoursToHMin(processo.tempoAcertoHoras)}
+                                    </span>
+                                    <span>·</span>
+                                    <span className="text-purple-700 font-semibold">
+                                      Extra: {formatHoursToHMin(processo.tempoExtraHoras)}
+                                    </span>
+                                  </div>
+                                )}
                               </>
                             ) : (
-                              <>
+                              <div className="flex items-center justify-between">
                                 <span>
                                   Produção: <strong>{processo.quantidadeProducao.toLocaleString('pt-BR')} un</strong>
                                 </span>
                                 <span>
                                   Milheiro: <strong>{formatBRL(processo.custoMilheiro)}/mil</strong>
                                 </span>
-                              </>
+                              </div>
                             )}
-                            <span className="text-gray-900 font-bold">
-                              Orçado: {formatBRL(processo.custoTotalOrçado)}
-                            </span>
+                            <div className="flex items-center justify-between pt-0.5 border-t border-gray-200/50">
+                              <span className="text-[10px] text-gray-400 uppercase">Custo Orçado</span>
+                              <span className="text-gray-900 font-bold">
+                                {formatBRL(processo.custoTotalOrçado)}
+                              </span>
+                            </div>
                           </div>
                         </div>
 
                         {/* Lado Direito: REALIZADO (Campos de Input) */}
-                        <div className="p-3.5 bg-white flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                          <div className="grid grid-cols-2 gap-2 flex-1 w-full">
-                            {isHora ? (
-                              <>
+                        <div className="p-3.5 bg-white flex flex-col justify-between gap-3">
+                          {isHora ? (
+                            <div className="space-y-2.5">
+                              {/* 3 Tempos Independentes Realizados */}
+                              <div className="grid grid-cols-3 gap-2">
                                 <div>
-                                  <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">
-                                    Tempo Real (Horas)
+                                  <label className="block text-[10px] font-bold text-blue-700 uppercase tracking-wider mb-0.5 truncate" title="Tempo Produtivo Real">
+                                    Produtivo (h)
                                   </label>
                                   <input
                                     type="number"
                                     step="0.01"
                                     min="0"
-                                    value={processo.tempoRealHoras}
+                                    value={processo.tempoProdutivoRealHoras ?? processo.tempoRealHoras}
                                     onChange={(e) => {
-                                      const val = parseFloat(e.target.value) || 0;
+                                      const pVal = parseFloat(e.target.value) || 0;
                                       setProcessosState((prev) =>
-                                        prev.map((item, i) =>
-                                          i === idx ? { ...item, tempoRealHoras: val } : item
-                                        )
+                                        prev.map((item, i) => {
+                                          if (i !== idx) return item;
+                                          const aVal = item.tempoAcertoRealHoras || 0;
+                                          const eVal = item.tempoExtraRealHoras || 0;
+                                          const totalH = Number((pVal + aVal + eVal).toFixed(4));
+                                          return {
+                                            ...item,
+                                            tempoProdutivoRealHoras: pVal,
+                                            tempoRealHoras: totalH,
+                                          };
+                                        })
                                       );
                                     }}
-                                    className="w-full text-xs font-bold font-mono text-gray-800 border border-gray-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#01B8AA] focus:border-[#01B8AA]"
+                                    className="w-full text-xs font-bold font-mono text-gray-800 border border-gray-300 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#01B8AA]"
+                                    placeholder="0.00"
                                   />
                                 </div>
 
                                 <div>
-                                  <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">
-                                    Custo/Hora Real (R$)
+                                  <label className="block text-[10px] font-bold text-amber-700 uppercase tracking-wider mb-0.5 truncate" title="Tempo de Acerto Real">
+                                    Acerto (h)
                                   </label>
                                   <input
                                     type="number"
                                     step="0.01"
                                     min="0"
-                                    value={processo.custoHoraReal}
+                                    value={processo.tempoAcertoRealHoras ?? 0}
                                     onChange={(e) => {
-                                      const val = parseFloat(e.target.value) || 0;
+                                      const aVal = parseFloat(e.target.value) || 0;
                                       setProcessosState((prev) =>
-                                        prev.map((item, i) =>
-                                          i === idx ? { ...item, custoHoraReal: val } : item
-                                        )
+                                        prev.map((item, i) => {
+                                          if (i !== idx) return item;
+                                          const pVal = item.tempoProdutivoRealHoras ?? item.tempoRealHoras ?? 0;
+                                          const eVal = item.tempoExtraRealHoras || 0;
+                                          const totalH = Number((pVal + aVal + eVal).toFixed(4));
+                                          return {
+                                            ...item,
+                                            tempoAcertoRealHoras: aVal,
+                                            tempoRealHoras: totalH,
+                                          };
+                                        })
                                       );
                                     }}
-                                    className="w-full text-xs font-bold font-mono text-gray-800 border border-gray-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#01B8AA] focus:border-[#01B8AA]"
+                                    className="w-full text-xs font-bold font-mono text-gray-800 border border-gray-300 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#01B8AA]"
+                                    placeholder="0.00"
                                   />
                                 </div>
-                              </>
-                            ) : (
-                              <>
+
+                                <div>
+                                  <label className="block text-[10px] font-bold text-purple-700 uppercase tracking-wider mb-0.5 truncate" title="Tempo Extra Real">
+                                    Extra (h)
+                                  </label>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    value={processo.tempoExtraRealHoras ?? 0}
+                                    onChange={(e) => {
+                                      const eVal = parseFloat(e.target.value) || 0;
+                                      setProcessosState((prev) =>
+                                        prev.map((item, i) => {
+                                          if (i !== idx) return item;
+                                          const pVal = item.tempoProdutivoRealHoras ?? item.tempoRealHoras ?? 0;
+                                          const aVal = item.tempoAcertoRealHoras || 0;
+                                          const totalH = Number((pVal + aVal + eVal).toFixed(4));
+                                          return {
+                                            ...item,
+                                            tempoExtraRealHoras: eVal,
+                                            tempoRealHoras: totalH,
+                                          };
+                                        })
+                                      );
+                                    }}
+                                    className="w-full text-xs font-bold font-mono text-gray-800 border border-gray-300 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#01B8AA]"
+                                    placeholder="0.00"
+                                  />
+                                </div>
+                              </div>
+
+                              {/* Linha de Resultado Automático: Tempo Total Real e Custo/Hora Real */}
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1 border-t border-gray-100">
+                                <div>
+                                  <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block">
+                                    Tempo Total Real:
+                                  </span>
+                                  <span className="text-xs font-black font-mono text-[#00897B]">
+                                    {formatHoursToHMin(processo.tempoRealHoras)} ({processo.tempoRealHoras.toFixed(2)}h)
+                                  </span>
+                                </div>
+
+                                <div className="flex items-center gap-2">
+                                  <div>
+                                    <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">
+                                      Taxa Real (R$/h)
+                                    </label>
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      min="0"
+                                      value={processo.custoHoraReal}
+                                      onChange={(e) => {
+                                        const val = parseFloat(e.target.value) || 0;
+                                        setProcessosState((prev) =>
+                                          prev.map((item, i) =>
+                                            i === idx ? { ...item, custoHoraReal: val } : item
+                                          )
+                                        );
+                                      }}
+                                      className="w-24 text-xs font-bold font-mono text-gray-800 border border-gray-300 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-[#01B8AA]"
+                                    />
+                                  </div>
+
+                                  <div className="text-right shrink-0 min-w-[100px]">
+                                    <span className="text-[10px] font-bold text-gray-400 block uppercase">
+                                      Total Real
+                                    </span>
+                                    <span className="text-xs font-bold font-mono text-[#00897B]">
+                                      {formatBRL(totalReal)}
+                                    </span>
+                                    <div className="text-[10px] font-bold font-mono">
+                                      {diff !== 0 && (
+                                        <span className={isExcess ? 'text-[#EF4444]' : 'text-[#10B981]'}>
+                                          {isExcess ? `+${formatBRL(diff)}` : formatBRL(diff)}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                              <div className="grid grid-cols-2 gap-2 flex-1 w-full">
                                 <div>
                                   <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">
                                     Qtd Real Produzida (un)
@@ -1140,25 +1321,25 @@ export const ProductionLogsView: React.FC<ProductionLogsViewProps> = ({
                                     className="w-full text-xs font-bold font-mono text-gray-800 border border-gray-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#01B8AA] focus:border-[#01B8AA]"
                                   />
                                 </div>
-                              </>
-                            )}
-                          </div>
+                              </div>
 
-                          <div className="text-right shrink-0 min-w-[130px]">
-                            <span className="text-[10px] font-bold text-gray-400 block uppercase">
-                              Total Real ({isHora ? `${processo.tempoRealHoras.toFixed(2)}h` : `${processo.quantidadeReal.toLocaleString('pt-BR')} un`})
-                            </span>
-                            <span className="text-sm font-bold font-mono text-[#00897B]">
-                              {formatBRL(totalReal)}
-                            </span>
-                            <div className="text-[10px] font-bold font-mono mt-0.5">
-                              {diff !== 0 && (
-                                <span className={isExcess ? 'text-[#EF4444]' : 'text-[#10B981]'}>
-                                  {isExcess ? `+${formatBRL(diff)}` : formatBRL(diff)}
+                              <div className="text-right shrink-0 min-w-[130px]">
+                                <span className="text-[10px] font-bold text-gray-400 block uppercase">
+                                  Total Real ({processo.quantidadeReal.toLocaleString('pt-BR')} un)
                                 </span>
-                              )}
+                                <span className="text-sm font-bold font-mono text-[#00897B]">
+                                  {formatBRL(totalReal)}
+                                </span>
+                                <div className="text-[10px] font-bold font-mono mt-0.5">
+                                  {diff !== 0 && (
+                                    <span className={isExcess ? 'text-[#EF4444]' : 'text-[#10B981]'}>
+                                      {isExcess ? `+${formatBRL(diff)}` : formatBRL(diff)}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
                             </div>
-                          </div>
+                          )}
                         </div>
                       </div>
                     );
