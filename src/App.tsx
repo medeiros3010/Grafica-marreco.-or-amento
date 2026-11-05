@@ -68,6 +68,10 @@ export default function App() {
 
   useEffect(() => {
     loadAllData();
+    const unsubscribe = storage.subscribeDataChange(() => {
+      loadAllData();
+    });
+    return unsubscribe;
   }, []);
 
   const handleGoToLogs = (productId: string) => {

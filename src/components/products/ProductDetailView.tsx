@@ -112,12 +112,31 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
 
   const [pricingForm, setPricingForm] = useState<ProductPricing>(activePricingConfig);
   const [pricingDirty, setPricingDirty] = useState(false);
+  const autoSavePricingTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const config = product.activeRevision?.pricing || product.pricing || DEFAULT_PRODUCT_PRICING;
     setPricingForm(config);
     setPricingDirty(false);
   }, [product.id, product.pricing, product.activeRevision]);
+
+  const updateAndAutoSavePricing = (newPricing: ProductPricing) => {
+    setPricingForm(newPricing);
+    setPricingDirty(true);
+
+    if (autoSavePricingTimer.current) {
+      clearTimeout(autoSavePricingTimer.current);
+    }
+
+    autoSavePricingTimer.current = setTimeout(async () => {
+      const updated: Product = {
+        ...product,
+        pricing: newPricing,
+      };
+      await storage.saveProduct(updated);
+      setPricingDirty(false);
+    }, 500);
+  };
 
   const isDraftMode = product.status === 'RASCUNHO' || !product.activeRevision;
   const currentRevision = product.revisions.find(
@@ -255,6 +274,10 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
 
   // Salvar Parâmetros de Precificação (Blocos B e C)
   const handleSavePricingConfig = async () => {
+    if (autoSavePricingTimer.current) {
+      clearTimeout(autoSavePricingTimer.current);
+      autoSavePricingTimer.current = null;
+    }
     const updated: Product = {
       ...product,
       pricing: pricingForm,
@@ -915,12 +938,12 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                 disabled={!isDraftMode}
                 value={pricingForm.profitMarginPercent}
                 onChange={(e) => {
-                  setPricingForm({
+                  updateAndAutoSavePricing({
                     ...pricingForm,
                     profitMarginPercent: parseFloat(e.target.value) || 0,
                   });
-                  setPricingDirty(true);
                 }}
+                onBlur={handleSavePricingConfig}
                 className="w-full text-sm font-bold font-mono text-gray-800 bg-white border border-gray-300 rounded-lg p-2 pr-7 focus:ring-2 focus:ring-[#01B8AA] focus:outline-none disabled:bg-gray-100"
               />
               <span className="absolute right-2.5 top-2.5 text-xs text-gray-400 font-bold">%</span>
@@ -943,12 +966,12 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                 disabled={!isDraftMode}
                 value={pricingForm.commissionPercent}
                 onChange={(e) => {
-                  setPricingForm({
+                  updateAndAutoSavePricing({
                     ...pricingForm,
                     commissionPercent: parseFloat(e.target.value) || 0,
                   });
-                  setPricingDirty(true);
                 }}
+                onBlur={handleSavePricingConfig}
                 className="w-full text-sm font-bold font-mono text-gray-800 bg-white border border-gray-300 rounded-lg p-2 pr-7 focus:ring-2 focus:ring-[#01B8AA] focus:outline-none disabled:bg-gray-100"
               />
               <span className="absolute right-2.5 top-2.5 text-xs text-gray-400 font-bold">%</span>
@@ -971,12 +994,12 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                 disabled={!isDraftMode}
                 value={pricingForm.taxPercent}
                 onChange={(e) => {
-                  setPricingForm({
+                  updateAndAutoSavePricing({
                     ...pricingForm,
                     taxPercent: parseFloat(e.target.value) || 0,
                   });
-                  setPricingDirty(true);
                 }}
+                onBlur={handleSavePricingConfig}
                 className="w-full text-sm font-bold font-mono text-gray-800 bg-white border border-gray-300 rounded-lg p-2 pr-7 focus:ring-2 focus:ring-[#01B8AA] focus:outline-none disabled:bg-gray-100"
               />
               <span className="absolute right-2.5 top-2.5 text-xs text-gray-400 font-bold">%</span>
@@ -999,12 +1022,12 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                 disabled={!isDraftMode}
                 value={pricingForm.interestPercent}
                 onChange={(e) => {
-                  setPricingForm({
+                  updateAndAutoSavePricing({
                     ...pricingForm,
                     interestPercent: parseFloat(e.target.value) || 0,
                   });
-                  setPricingDirty(true);
                 }}
+                onBlur={handleSavePricingConfig}
                 className="w-full text-sm font-bold font-mono text-gray-800 bg-white border border-gray-300 rounded-lg p-2 pr-7 focus:ring-2 focus:ring-[#01B8AA] focus:outline-none disabled:bg-gray-100"
               />
               <span className="absolute right-2.5 top-2.5 text-xs text-gray-400 font-bold">%</span>
@@ -1143,12 +1166,12 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                 disabled={!isDraftMode}
                 value={pricingForm.additionalExpenses}
                 onChange={(e) => {
-                  setPricingForm({
+                  updateAndAutoSavePricing({
                     ...pricingForm,
                     additionalExpenses: parseFloat(e.target.value) || 0,
                   });
-                  setPricingDirty(true);
                 }}
+                onBlur={handleSavePricingConfig}
                 className="w-full text-sm font-bold font-mono text-gray-800 bg-white border border-gray-300 rounded-lg p-2 pl-9 focus:ring-2 focus:ring-[#01B8AA] focus:outline-none disabled:bg-gray-100"
               />
             </div>
@@ -1168,12 +1191,12 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                 disabled={!isDraftMode}
                 value={pricingForm.ipiPercent}
                 onChange={(e) => {
-                  setPricingForm({
+                  updateAndAutoSavePricing({
                     ...pricingForm,
                     ipiPercent: parseFloat(e.target.value) || 0,
                   });
-                  setPricingDirty(true);
                 }}
+                onBlur={handleSavePricingConfig}
                 className="w-full text-sm font-bold font-mono text-gray-800 bg-white border border-gray-300 rounded-lg p-2 pr-7 focus:ring-2 focus:ring-[#01B8AA] focus:outline-none disabled:bg-gray-100"
               />
               <span className="absolute right-2.5 top-2.5 text-xs text-gray-400 font-bold">%</span>
@@ -1196,12 +1219,12 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                 disabled={!isDraftMode}
                 value={pricingForm.icmsStPercent}
                 onChange={(e) => {
-                  setPricingForm({
+                  updateAndAutoSavePricing({
                     ...pricingForm,
                     icmsStPercent: parseFloat(e.target.value) || 0,
                   });
-                  setPricingDirty(true);
                 }}
+                onBlur={handleSavePricingConfig}
                 className="w-full text-sm font-bold font-mono text-gray-800 bg-white border border-gray-300 rounded-lg p-2 pr-7 focus:ring-2 focus:ring-[#01B8AA] focus:outline-none disabled:bg-gray-100"
               />
               <span className="absolute right-2.5 top-2.5 text-xs text-gray-400 font-bold">%</span>

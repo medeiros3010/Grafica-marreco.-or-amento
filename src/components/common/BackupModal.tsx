@@ -202,7 +202,19 @@ export const BackupModal: React.FC<BackupModalProps> = ({
                 </span>
               </div>
 
-              <div className="grid grid-cols-3 gap-2 text-center">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 text-center">
+                <div className="p-2 bg-white rounded border border-amber-200">
+                  <span className="block text-base font-bold text-slate-900 tabular-nums">
+                    {parsedBackup.counts.machines ?? (parsedBackup.machines?.length || 0)}
+                  </span>
+                  <span className="text-[11px] text-slate-500">Máquinas</span>
+                </div>
+                <div className="p-2 bg-white rounded border border-amber-200">
+                  <span className="block text-base font-bold text-slate-900 tabular-nums">
+                    {parsedBackup.counts.materials ?? (parsedBackup.materials?.length || 0)}
+                  </span>
+                  <span className="text-[11px] text-slate-500">Insumos (MP)</span>
+                </div>
                 <div className="p-2 bg-white rounded border border-amber-200">
                   <span className="block text-base font-bold text-slate-900 tabular-nums">
                     {parsedBackup.counts.tasks}
@@ -220,6 +232,12 @@ export const BackupModal: React.FC<BackupModalProps> = ({
                     {parsedBackup.counts.logs}
                   </span>
                   <span className="text-[11px] text-slate-500">Apontamentos</span>
+                </div>
+                <div className="p-2 bg-white rounded border border-amber-200">
+                  <span className="block text-base font-bold text-slate-900 tabular-nums">
+                    {parsedBackup.counts.actualRecords ?? (parsedBackup.actualRecords?.length || 0)}
+                  </span>
+                  <span className="text-[11px] text-slate-500">Realizado</span>
                 </div>
               </div>
 

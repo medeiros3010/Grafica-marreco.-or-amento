@@ -501,10 +501,17 @@ export const ProductionLogsView: React.FC<ProductionLogsViewProps> = ({
     };
   }, [materialsState, processosState, extrasState, currentProduct, deliveredQuantityState]);
 
+  const isInitialLoadRef = React.useRef(true);
+  const autoSaveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  React.useEffect(() => {
+    isInitialLoadRef.current = true;
+  }, [currentProduct?.id]);
+
   // SALVAR APONTAMENTO REALIZADO (ENTIDADE ActualRecord)
-  const handleSaveActualRecord = async () => {
+  const handleSaveActualRecord = async (silent = false) => {
     if (!currentProduct) return;
-    setSaving(true);
+    if (!silent) setSaving(true);
 
     try {
       // Monta as linhas de matérias-primas
@@ -627,20 +634,48 @@ export const ProductionLogsView: React.FC<ProductionLogsViewProps> = ({
 
       await storage.saveProduct(updatedProduct);
       await storage.saveActualRecord(actualRecord);
-      setSaveSuccessMsg('Apontamento de produção registrado com sucesso na base de dados!');
-      onRefresh();
-
-      setTimeout(() => setSaveSuccessMsg(null), 4000);
-      onRefresh();
-
-      setTimeout(() => setSaveSuccessMsg(null), 4000);
+      if (!silent) {
+        setSaveSuccessMsg('Apontamento de produção registrado com sucesso na base de dados!');
+        setTimeout(() => setSaveSuccessMsg(null), 4000);
+      }
     } catch (err) {
       console.error('Erro ao salvar apontamento real:', err);
-      alert('Erro ao gravar o apontamento. Verifique os dados digitados.');
+      if (!silent) {
+        alert('Erro ao gravar o apontamento. Verifique os dados digitados.');
+      }
     } finally {
-      setSaving(false);
+      if (!silent) setSaving(false);
     }
   };
+
+  // Efeito central de salvamento automático do Realizado (Chão de Fábrica)
+  React.useEffect(() => {
+    if (isInitialLoadRef.current) {
+      isInitialLoadRef.current = false;
+      return;
+    }
+
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+    }
+
+    autoSaveTimerRef.current = setTimeout(() => {
+      handleSaveActualRecord(true);
+    }, 700);
+
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+      }
+    };
+  }, [
+    materialsState,
+    processosState,
+    extrasState,
+    deliveredQuantityState,
+    apontamentoDate,
+    notes,
+  ]);
 
   return (
     <div className="space-y-6">
@@ -740,7 +775,7 @@ export const ProductionLogsView: React.FC<ProductionLogsViewProps> = ({
             </div>
 
             <button
-              onClick={handleSaveActualRecord}
+              onClick={() => handleSaveActualRecord(false)}
               disabled={saving}
               className="inline-flex items-center justify-center gap-2 px-5 py-2 text-xs font-bold text-white bg-[#01B8AA] hover:bg-[#009E91] rounded-lg shadow-sm transition-all shrink-0 active:scale-95 disabled:opacity-50"
             >
@@ -1659,7 +1694,7 @@ export const ProductionLogsView: React.FC<ProductionLogsViewProps> = ({
 
               <div className="flex items-center gap-2">
                 <button
-                  onClick={handleSaveActualRecord}
+                  onClick={() => handleSaveActualRecord(false)}
                   disabled={saving}
                   className="inline-flex items-center gap-2 px-6 py-2.5 text-xs font-bold text-white bg-[#01B8AA] hover:bg-[#009E91] rounded-lg shadow-sm transition-all"
                 >

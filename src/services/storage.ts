@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { StandardTask, Product, ProductionLog, BudgetRevision, Machine, RawMaterial, ActualRecord } from '../types';
+import { StandardTask, Product, ProductionLog, Machine, RawMaterial, ActualRecord } from '../types';
 import {
   INITIAL_STANDARD_TASKS,
   INITIAL_PRODUCTS,
@@ -13,218 +13,562 @@ import {
 } from './seedData';
 
 const DB_NAME = 'graficacustos_db_v1';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
+const LOCAL_STORAGE_KEY = 'graficacustos_snapshot_v1';
+const LOCAL_STORAGE_META_KEY = 'graficacustos_meta_v1';
 
-interface AppMetadata {
-  id: string;
-  version: number;
-  initializedAt: string;
-  lastBackupAt?: string;
+export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
+
+export interface StorageStatusListener {
+  (status: SaveStatus, lastSavedAt?: Date, errorMsg?: string): void;
 }
 
 export interface BackupData {
   format: 'GRAFICACUSTOS_BACKUP';
   version: number;
   exportedAt: string;
-  machines?: Machine[];
-  materials?: RawMaterial[];
+  machines: Machine[];
+  materials: RawMaterial[];
   tasks: StandardTask[];
   products: Product[];
   logs: ProductionLog[];
-  actualRecords?: ActualRecord[];
+  actualRecords: ActualRecord[];
   counts: {
-    machines?: number;
-    materials?: number;
+    machines: number;
+    materials: number;
     tasks: number;
     products: number;
     logs: number;
-    actualRecords?: number;
+    actualRecords: number;
   };
 }
 
-class StorageService {
-  private dbPromise: Promise<IDBDatabase> | null = null;
+export interface StorageSnapshot {
+  version: number;
+  updatedAt: string;
+  machines: Machine[];
+  materials: RawMaterial[];
+  tasks: StandardTask[];
+  products: Product[];
+  logs: ProductionLog[];
+  actualRecords: ActualRecord[];
+}
 
-  // Fallback em memória para ambientes sem IndexedDB nativo (ex: Node.js test runner)
+class StorageService {
+  private dbPromise: Promise<IDBDatabase | null> | null = null;
+  private isInitialized = false;
+  private initPromise: Promise<void> | null = null;
+
+  // Cache centralizado em memória (RAM)
   private memMachines: Map<string, Machine> = new Map();
   private memMaterials: Map<string, RawMaterial> = new Map();
   private memTasks: Map<string, StandardTask> = new Map();
   private memProducts: Map<string, Product> = new Map();
   private memLogs: Map<string, ProductionLog> = new Map();
   private memActualRecords: Map<string, ActualRecord> = new Map();
-  private memInitialized = false;
 
-  private initMemoryStorage() {
-    if (this.memInitialized) return;
-    for (const m of INITIAL_MACHINES) this.memMachines.set(m.id, { ...m });
-    for (const mat of INITIAL_RAW_MATERIALS) this.memMaterials.set(mat.id, { ...mat });
-    for (const t of INITIAL_STANDARD_TASKS) this.memTasks.set(t.id, { ...t });
-    for (const p of INITIAL_PRODUCTS) this.memProducts.set(p.id, { ...p });
-    for (const l of INITIAL_PRODUCTION_LOGS) this.memLogs.set(l.id, { ...l });
-    this.memInitialized = true;
+  // Status de salvamento e ouvintes
+  private currentStatus: SaveStatus = 'saved';
+  private lastSavedAt: Date = new Date();
+  private lastError: string | null = null;
+  private statusListeners: Set<StorageStatusListener> = new Set();
+  private dataChangeListeners: Set<() => void> = new Set();
+  private saveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+  constructor() {
+    // Sincroniza abas/janelas via Storage Event
+    if (typeof window !== 'undefined') {
+      window.addEventListener('storage', (event) => {
+        if (event.key === LOCAL_STORAGE_KEY && event.newValue) {
+          try {
+            const snapshot = JSON.parse(event.newValue) as StorageSnapshot;
+            this.loadSnapshotIntoMemory(snapshot);
+            this.notifyDataChange();
+          } catch (e) {
+            console.warn('Erro ao processar storage event externo:', e);
+          }
+        }
+      });
+
+      // Garantir flush de dados antes de fechar a janela
+      window.addEventListener('beforeunload', () => {
+        this.persistImmediateSnapshot();
+      });
+    }
   }
+
+  // ==========================================
+  // CONTROLE DE STATUS E EVENTOS
+  // ==========================================
+
+  public getSaveStatus(): { status: SaveStatus; lastSavedAt: Date; errorMsg: string | null } {
+    return {
+      status: this.currentStatus,
+      lastSavedAt: this.lastSavedAt,
+      errorMsg: this.lastError,
+    };
+  }
+
+  public subscribeStatus(listener: StorageStatusListener): () => void {
+    this.statusListeners.add(listener);
+    // Dispara estado atual imediatamente para o novo ouvinte
+    listener(this.currentStatus, this.lastSavedAt, this.lastError || undefined);
+    return () => this.statusListeners.delete(listener);
+  }
+
+  private setStatus(status: SaveStatus, errorMsg?: string) {
+    this.currentStatus = status;
+    if (status === 'saved') {
+      this.lastSavedAt = new Date();
+      this.lastError = null;
+    } else if (status === 'error') {
+      this.lastError = errorMsg || 'Erro desconhecido na gravação de dados';
+    }
+    this.statusListeners.forEach((l) => {
+      try {
+        l(this.currentStatus, this.lastSavedAt, this.lastError || undefined);
+      } catch (err) {
+        console.error('Erro em ouvinte de status do storage:', err);
+      }
+    });
+  }
+
+  public subscribeDataChange(listener: () => void): () => void {
+    this.dataChangeListeners.add(listener);
+    return () => this.dataChangeListeners.delete(listener);
+  }
+
+  private notifyDataChange() {
+    this.dataChangeListeners.forEach((l) => {
+      try {
+        l();
+      } catch (err) {
+        console.error('Erro em ouvinte de alteração de dados:', err);
+      }
+    });
+  }
+
+  // ==========================================
+  // INICIALIZAÇÃO E CAMADA DUAL (IndexedDB + localStorage)
+  // ==========================================
 
   private hasIndexedDB(): boolean {
-    return typeof indexedDB !== 'undefined';
+    return typeof window !== 'undefined' && typeof indexedDB !== 'undefined';
   }
 
-  private async getDB(): Promise<IDBDatabase> {
-    if (!this.hasIndexedDB()) {
-      throw new Error('IndexedDB não suportado neste ambiente.');
+  private hasLocalStorage(): boolean {
+    try {
+      if (typeof window === 'undefined' || !window.localStorage) return false;
+      const testKey = '__storage_test__';
+      window.localStorage.setItem(testKey, testKey);
+      window.localStorage.removeItem(testKey);
+      return true;
+    } catch {
+      return false;
     }
+  }
+
+  private async getDB(): Promise<IDBDatabase | null> {
+    if (!this.hasIndexedDB()) return null;
     if (this.dbPromise) return this.dbPromise;
 
-    this.dbPromise = new Promise((resolve, reject) => {
-      const request = indexedDB.open(DB_NAME, DB_VERSION);
+    this.dbPromise = new Promise((resolve) => {
+      try {
+        const request = indexedDB.open(DB_NAME, DB_VERSION);
 
-      request.onupgradeneeded = (event) => {
-        const db = (event.target as IDBOpenDBRequest).result;
+        request.onupgradeneeded = (event) => {
+          const db = (event.target as IDBOpenDBRequest).result;
 
-        // Máquinas
-        if (!db.objectStoreNames.contains('machines')) {
-          const machineStore = db.createObjectStore('machines', { keyPath: 'id' });
-          machineStore.createIndex('nome', 'nome', { unique: false });
-          machineStore.createIndex('active', 'active', { unique: false });
-        }
+          if (!db.objectStoreNames.contains('machines')) {
+            const machineStore = db.createObjectStore('machines', { keyPath: 'id' });
+            machineStore.createIndex('nome', 'nome', { unique: false });
+            machineStore.createIndex('active', 'active', { unique: false });
+          }
 
-        // Matérias-Primas (Insumos)
-        if (!db.objectStoreNames.contains('materials')) {
-          const matStore = db.createObjectStore('materials', { keyPath: 'id' });
-          matStore.createIndex('nome', 'nome', { unique: false });
-          matStore.createIndex('active', 'active', { unique: false });
-        }
+          if (!db.objectStoreNames.contains('materials')) {
+            const matStore = db.createObjectStore('materials', { keyPath: 'id' });
+            matStore.createIndex('nome', 'nome', { unique: false });
+            matStore.createIndex('active', 'active', { unique: false });
+          }
 
-        // Tarefas
-        if (!db.objectStoreNames.contains('tasks')) {
-          const taskStore = db.createObjectStore('tasks', { keyPath: 'id' });
-          taskStore.createIndex('code', 'code', { unique: true });
-          taskStore.createIndex('sector', 'sector', { unique: false });
-          taskStore.createIndex('active', 'active', { unique: false });
-        }
+          if (!db.objectStoreNames.contains('tasks')) {
+            const taskStore = db.createObjectStore('tasks', { keyPath: 'id' });
+            taskStore.createIndex('code', 'code', { unique: true });
+            taskStore.createIndex('sector', 'sector', { unique: false });
+            taskStore.createIndex('active', 'active', { unique: false });
+          }
 
-        // Produtos
-        if (!db.objectStoreNames.contains('products')) {
-          const prodStore = db.createObjectStore('products', { keyPath: 'id' });
-          prodStore.createIndex('code', 'code', { unique: true });
-          prodStore.createIndex('status', 'status', { unique: false });
-        }
+          if (!db.objectStoreNames.contains('products')) {
+            const prodStore = db.createObjectStore('products', { keyPath: 'id' });
+            prodStore.createIndex('code', 'code', { unique: true });
+            prodStore.createIndex('status', 'status', { unique: false });
+          }
 
-        // Logs
-        if (!db.objectStoreNames.contains('logs')) {
-          const logStore = db.createObjectStore('logs', { keyPath: 'id' });
-          logStore.createIndex('productId', 'productId', { unique: false });
-          logStore.createIndex('operationId', 'operationId', { unique: false });
-          logStore.createIndex('date', 'date', { unique: false });
-        }
+          if (!db.objectStoreNames.contains('logs')) {
+            const logStore = db.createObjectStore('logs', { keyPath: 'id' });
+            logStore.createIndex('productId', 'productId', { unique: false });
+            logStore.createIndex('operationId', 'operationId', { unique: false });
+            logStore.createIndex('date', 'date', { unique: false });
+          }
 
-        // Apontamento Espelho (ActualRecord)
-        if (!db.objectStoreNames.contains('actual_records')) {
-          const actualStore = db.createObjectStore('actual_records', { keyPath: 'id' });
-          actualStore.createIndex('productId', 'productId', { unique: false });
-        }
+          if (!db.objectStoreNames.contains('actual_records')) {
+            const actualStore = db.createObjectStore('actual_records', { keyPath: 'id' });
+            actualStore.createIndex('productId', 'productId', { unique: false });
+          }
 
-        if (!db.objectStoreNames.contains('metadata')) {
-          db.createObjectStore('metadata', { keyPath: 'id' });
-        }
-      };
+          if (!db.objectStoreNames.contains('metadata')) {
+            db.createObjectStore('metadata', { keyPath: 'id' });
+          }
+        };
 
-      request.onsuccess = async (event) => {
-        const db = (event.target as IDBOpenDBRequest).result;
-        await this.checkAndSeed(db);
-        resolve(db);
-      };
+        request.onsuccess = (event) => {
+          const db = (event.target as IDBOpenDBRequest).result;
+          resolve(db);
+        };
 
-      request.onerror = (event) => {
-        console.error('Erro ao abrir IndexedDB:', (event.target as IDBOpenDBRequest).error);
-        reject((event.target as IDBOpenDBRequest).error);
-      };
+        request.onerror = (event) => {
+          console.warn('IndexedDB bloqueado ou com falha. Operando com localStorage:', (event.target as IDBOpenDBRequest).error);
+          resolve(null);
+        };
+
+        request.onblocked = () => {
+          console.warn('Abertura do IndexedDB bloqueada por outra aba.');
+          resolve(null);
+        };
+      } catch (err) {
+        console.warn('Exceção ao instanciar IndexedDB:', err);
+        resolve(null);
+      }
     });
 
     return this.dbPromise;
   }
 
-  private async checkAndSeed(db: IDBDatabase): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const storeNames = ['tasks', 'products', 'logs', 'metadata', 'machines', 'materials'];
-      const tx = db.transaction(storeNames, 'readwrite');
-      
-      const metaStore = tx.objectStore('metadata');
-      const getMetaReq = metaStore.get('app_config');
+  /**
+   * Inicialização unificada e segura.
+   * Garante que os dados existentes NUNCA sejam sobrescritos por coleções vazias.
+   */
+  public async ensureInitialized(): Promise<void> {
+    if (this.isInitialized) return;
+    if (this.initPromise) return this.initPromise;
 
-      getMetaReq.onsuccess = () => {
-        const meta = getMetaReq.result as AppMetadata | undefined;
+    this.initPromise = (async () => {
+      try {
+        this.setStatus('saving');
 
-        // Se já foi inicializado anteriormente, apenas sanitiza registros legados com deleted: true
-        if (meta) {
-          // Desmarca qualquer flag 'deleted' legada para garantir preservação total de tarefas
-          const taskStore = tx.objectStore('tasks');
-          const taskCursorReq = taskStore.openCursor();
-          taskCursorReq.onsuccess = (e) => {
-            const cursor = (e.target as IDBRequest<IDBCursorWithValue>).result;
-            if (cursor) {
-              const val = cursor.value;
-              if (val.deleted) {
-                val.deleted = false;
-                delete val.deletedAt;
-                cursor.update(val);
-              }
-              cursor.continue();
+        // 1. Tenta carregar snapshot síncrono do localStorage (mais rápido e tolerante a reloads)
+        let localSnapshot: StorageSnapshot | null = null;
+        if (this.hasLocalStorage()) {
+          try {
+            const raw = window.localStorage.getItem(LOCAL_STORAGE_KEY);
+            if (raw) {
+              localSnapshot = JSON.parse(raw) as StorageSnapshot;
             }
-          };
+          } catch (e) {
+            console.warn('Falha ao ler snapshot do localStorage:', e);
+          }
+        }
 
-          // Desmarca qualquer flag 'deleted' legada em produtos
-          const prodStore = tx.objectStore('products');
-          const prodCursorReq = prodStore.openCursor();
-          prodCursorReq.onsuccess = (e) => {
-            const cursor = (e.target as IDBRequest<IDBCursorWithValue>).result;
-            if (cursor) {
-              const val = cursor.value;
-              if (val.deleted) {
-                val.deleted = false;
-                delete val.deletedAt;
-                cursor.update(val);
-              }
-              cursor.continue();
-            }
-          };
+        // 2. Tenta conectar ao IndexedDB
+        const db = await this.getDB();
+        let idbSnapshot: StorageSnapshot | null = null;
+
+        if (db) {
+          idbSnapshot = await this.readAllFromIDB(db);
+        }
+
+        // 3. Estratégia de resolução de dados:
+        // Prioriza a fonte que possui registros válidos reais.
+        const idbHasData = idbSnapshot && (
+          idbSnapshot.products.length > 0 ||
+          idbSnapshot.tasks.length > 0 ||
+          idbSnapshot.machines.length > 0
+        );
+
+        const localHasData = localSnapshot && (
+          localSnapshot.products.length > 0 ||
+          localSnapshot.tasks.length > 0 ||
+          localSnapshot.machines.length > 0
+        );
+
+        let chosenSnapshot: StorageSnapshot | null = null;
+
+        if (idbHasData && localHasData) {
+          // Se ambos possuem dados, compara timestamps ou maior volume de registros
+          const idbTime = new Date(idbSnapshot!.updatedAt || 0).getTime();
+          const localTime = new Date(localSnapshot!.updatedAt || 0).getTime();
+          chosenSnapshot = localTime >= idbTime ? localSnapshot : idbSnapshot;
+        } else if (localHasData) {
+          chosenSnapshot = localSnapshot;
+        } else if (idbHasData) {
+          chosenSnapshot = idbSnapshot;
+        }
+
+        if (chosenSnapshot) {
+          // Dados salvos previamente encontrados: carrega em memória e re-sincroniza ambos
+          this.loadSnapshotIntoMemory(chosenSnapshot);
+          this.persistImmediateSnapshot();
+          if (db) {
+            await this.writeAllToIDB(db, chosenSnapshot);
+          }
+        } else {
+          // Primeira execução no dispositivo: inicializa com dados mestres de demonstração (seed)
+          this.loadSeedDataIntoMemory();
+          const initialSnapshot = this.createSnapshotFromMemory();
+          this.persistImmediateSnapshot();
+          if (db) {
+            await this.writeAllToIDB(db, initialSnapshot);
+          }
+        }
+
+        this.isInitialized = true;
+        this.setStatus('saved');
+      } catch (err) {
+        console.error('Erro na inicialização da persistência centralizada:', err);
+        // Fallback resiliente: se der qualquer erro, nunca deixa a aplicação sem dados
+        if (this.memProducts.size === 0) {
+          this.loadSeedDataIntoMemory();
+        }
+        this.isInitialized = true;
+        this.setStatus('saved');
+      }
+    })();
+
+    return this.initPromise;
+  }
+
+  private loadSeedDataIntoMemory() {
+    this.memMachines.clear();
+    this.memMaterials.clear();
+    this.memTasks.clear();
+    this.memProducts.clear();
+    this.memLogs.clear();
+    this.memActualRecords.clear();
+
+    for (const m of INITIAL_MACHINES) this.memMachines.set(m.id, { ...m });
+    for (const mat of INITIAL_RAW_MATERIALS) this.memMaterials.set(mat.id, { ...mat });
+    for (const t of INITIAL_STANDARD_TASKS) this.memTasks.set(t.id, { ...t });
+    for (const p of INITIAL_PRODUCTS) this.memProducts.set(p.id, { ...p });
+    for (const l of INITIAL_PRODUCTION_LOGS) this.memLogs.set(l.id, { ...l });
+  }
+
+  private loadSnapshotIntoMemory(snapshot: StorageSnapshot) {
+    this.memMachines.clear();
+    this.memMaterials.clear();
+    this.memTasks.clear();
+    this.memProducts.clear();
+    this.memLogs.clear();
+    this.memActualRecords.clear();
+
+    if (Array.isArray(snapshot.machines)) {
+      for (const m of snapshot.machines) this.memMachines.set(m.id, m);
+    }
+    if (Array.isArray(snapshot.materials)) {
+      for (const mat of snapshot.materials) this.memMaterials.set(mat.id, mat);
+    }
+    if (Array.isArray(snapshot.tasks)) {
+      for (const t of snapshot.tasks) this.memTasks.set(t.id, t);
+    }
+    if (Array.isArray(snapshot.products)) {
+      for (const p of snapshot.products) {
+        this.memProducts.set(p.id, p);
+        if (p.actualRecord) {
+          this.memActualRecords.set(p.actualRecord.id, p.actualRecord);
+        }
+      }
+    }
+    if (Array.isArray(snapshot.logs)) {
+      for (const l of snapshot.logs) this.memLogs.set(l.id, l);
+    }
+    if (Array.isArray(snapshot.actualRecords)) {
+      for (const r of snapshot.actualRecords) this.memActualRecords.set(r.id, r);
+    }
+  }
+
+  private createSnapshotFromMemory(): StorageSnapshot {
+    return {
+      version: DB_VERSION,
+      updatedAt: new Date().toISOString(),
+      machines: Array.from(this.memMachines.values()),
+      materials: Array.from(this.memMaterials.values()),
+      tasks: Array.from(this.memTasks.values()),
+      products: Array.from(this.memProducts.values()),
+      logs: Array.from(this.memLogs.values()),
+      actualRecords: Array.from(this.memActualRecords.values()),
+    };
+  }
+
+  /**
+   * Grava imediatamente no localStorage para garantir sobrevivência instantânea a reload / fechamento
+   */
+  private persistImmediateSnapshot(): boolean {
+    if (!this.hasLocalStorage()) return false;
+    try {
+      const snapshot = this.createSnapshotFromMemory();
+      const serialized = JSON.stringify(snapshot);
+      window.localStorage.setItem(LOCAL_STORAGE_KEY, serialized);
+      window.localStorage.setItem(
+        LOCAL_STORAGE_META_KEY,
+        JSON.stringify({
+          updatedAt: snapshot.updatedAt,
+          version: snapshot.version,
+          itemCount:
+            snapshot.machines.length +
+            snapshot.materials.length +
+            snapshot.tasks.length +
+            snapshot.products.length +
+            snapshot.logs.length,
+        })
+      );
+      return true;
+    } catch (e) {
+      console.warn('Aviso: falha ao gravar snapshot síncrono no localStorage:', e);
+      return false;
+    }
+  }
+
+  /**
+   * Gravação centralizada de qualquer entidade.
+   * Atualiza a memória, o espelho do localStorage e o IndexedDB com garantia de status.
+   */
+  private async persistChange(): Promise<void> {
+    this.setStatus('saving');
+
+    // 1. Grava no localStorage imediatamente
+    this.persistImmediateSnapshot();
+
+    // 2. Grava de forma assíncrona no IndexedDB
+    try {
+      const db = await this.getDB();
+      if (db) {
+        const snapshot = this.createSnapshotFromMemory();
+        await this.writeAllToIDB(db, snapshot);
+      }
+      this.setStatus('saved');
+      this.notifyDataChange();
+    } catch (err) {
+      console.error('Erro na gravação assíncrona do IndexedDB:', err);
+      // Se o localStorage gravou, ainda estamos seguros
+      if (this.hasLocalStorage()) {
+        this.setStatus('saved');
+        this.notifyDataChange();
+      } else {
+        this.setStatus('error', err instanceof Error ? err.message : 'Falha na gravação');
+        throw err;
+      }
+    }
+  }
+
+  private async readAllFromIDB(db: IDBDatabase): Promise<StorageSnapshot | null> {
+    return new Promise((resolve) => {
+      try {
+        const storeNames = ['machines', 'materials', 'tasks', 'products', 'logs', 'actual_records'];
+        const validStores = storeNames.filter((name) => db.objectStoreNames.contains(name));
+        if (validStores.length === 0) {
+          resolve(null);
           return;
         }
 
-        // Primeira inicialização do sistema
-        const machineStore = tx.objectStore('machines');
-        for (const m of INITIAL_MACHINES) {
-          machineStore.put(m);
-        }
-
-        const matStore = tx.objectStore('materials');
-        for (const mat of INITIAL_RAW_MATERIALS) {
-          matStore.put(mat);
-        }
-
-        const taskStore = tx.objectStore('tasks');
-        for (const task of INITIAL_STANDARD_TASKS) {
-          taskStore.put(task);
-        }
-
-        const prodStore = tx.objectStore('products');
-        for (const prod of INITIAL_PRODUCTS) {
-          prodStore.put(prod);
-        }
-
-        const logStore = tx.objectStore('logs');
-        for (const log of INITIAL_PRODUCTION_LOGS) {
-          logStore.put(log);
-        }
-
-        metaStore.put({
-          id: 'app_config',
+        const tx = db.transaction(validStores, 'readonly');
+        const snapshot: Partial<StorageSnapshot> = {
           version: DB_VERSION,
-          initializedAt: new Date().toISOString(),
-        } as AppMetadata);
-      };
+          updatedAt: new Date().toISOString(),
+          machines: [],
+          materials: [],
+          tasks: [],
+          products: [],
+          logs: [],
+          actualRecords: [],
+        };
 
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
+        if (db.objectStoreNames.contains('machines')) {
+          const req = tx.objectStore('machines').getAll();
+          req.onsuccess = () => (snapshot.machines = req.result || []);
+        }
+        if (db.objectStoreNames.contains('materials')) {
+          const req = tx.objectStore('materials').getAll();
+          req.onsuccess = () => (snapshot.materials = req.result || []);
+        }
+        if (db.objectStoreNames.contains('tasks')) {
+          const req = tx.objectStore('tasks').getAll();
+          req.onsuccess = () => (snapshot.tasks = req.result || []);
+        }
+        if (db.objectStoreNames.contains('products')) {
+          const req = tx.objectStore('products').getAll();
+          req.onsuccess = () => (snapshot.products = req.result || []);
+        }
+        if (db.objectStoreNames.contains('logs')) {
+          const req = tx.objectStore('logs').getAll();
+          req.onsuccess = () => (snapshot.logs = req.result || []);
+        }
+        if (db.objectStoreNames.contains('actual_records')) {
+          const req = tx.objectStore('actual_records').getAll();
+          req.onsuccess = () => (snapshot.actualRecords = req.result || []);
+        }
+
+        tx.oncomplete = () => {
+          resolve(snapshot as StorageSnapshot);
+        };
+        tx.onerror = () => {
+          resolve(null);
+        };
+      } catch {
+        resolve(null);
+      }
+    });
+  }
+
+  private async writeAllToIDB(db: IDBDatabase, snapshot: StorageSnapshot): Promise<void> {
+    return new Promise((resolve, reject) => {
+      try {
+        const storeNames = ['machines', 'materials', 'tasks', 'products', 'logs', 'actual_records', 'metadata'];
+        const validStores = storeNames.filter((name) => db.objectStoreNames.contains(name));
+        const tx = db.transaction(validStores, 'readwrite');
+
+        if (db.objectStoreNames.contains('machines')) {
+          const store = tx.objectStore('machines');
+          store.clear();
+          for (const m of snapshot.machines) store.put(m);
+        }
+        if (db.objectStoreNames.contains('materials')) {
+          const store = tx.objectStore('materials');
+          store.clear();
+          for (const mat of snapshot.materials) store.put(mat);
+        }
+        if (db.objectStoreNames.contains('tasks')) {
+          const store = tx.objectStore('tasks');
+          store.clear();
+          for (const t of snapshot.tasks) store.put(t);
+        }
+        if (db.objectStoreNames.contains('products')) {
+          const store = tx.objectStore('products');
+          store.clear();
+          for (const p of snapshot.products) store.put(p);
+        }
+        if (db.objectStoreNames.contains('logs')) {
+          const store = tx.objectStore('logs');
+          store.clear();
+          for (const l of snapshot.logs) store.put(l);
+        }
+        if (db.objectStoreNames.contains('actual_records')) {
+          const store = tx.objectStore('actual_records');
+          store.clear();
+          for (const r of snapshot.actualRecords) store.put(r);
+        }
+        if (db.objectStoreNames.contains('metadata')) {
+          const store = tx.objectStore('metadata');
+          store.put({
+            id: 'app_config',
+            version: DB_VERSION,
+            updatedAt: snapshot.updatedAt,
+          });
+        }
+
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      } catch (err) {
+        reject(err);
+      }
     });
   }
 
@@ -233,55 +577,28 @@ class StorageService {
   // ==========================================
 
   async getAllMachines(): Promise<Machine[]> {
-    if (!this.hasIndexedDB()) {
-      this.initMemoryStorage();
-      return Array.from(this.memMachines.values());
-    }
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction('machines', 'readonly');
-      const store = tx.objectStore('machines');
-      const request = store.getAll();
-      request.onsuccess = () => resolve(request.result || []);
-      request.onerror = () => reject(request.error);
-    });
+    await this.ensureInitialized();
+    return Array.from(this.memMachines.values());
   }
 
   async getMachineById(id: string): Promise<Machine | null> {
-    if (!this.hasIndexedDB()) {
-      this.initMemoryStorage();
-      return this.memMachines.get(id) || null;
-    }
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction('machines', 'readonly');
-      const store = tx.objectStore('machines');
-      const request = store.get(id);
-      request.onsuccess = () => resolve(request.result || null);
-      request.onerror = () => reject(request.error);
-    });
+    await this.ensureInitialized();
+    return this.memMachines.get(id) || null;
   }
 
   async saveMachine(machine: Machine): Promise<void> {
-    if (!this.hasIndexedDB()) {
-      this.initMemoryStorage();
-      this.memMachines.set(machine.id, { ...machine, updatedAt: new Date().toISOString() });
-      return;
-    }
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction('machines', 'readwrite');
-      const store = tx.objectStore('machines');
-      const request = store.put({
-        ...machine,
-        updatedAt: new Date().toISOString(),
-      });
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(request.error);
-    });
+    await this.ensureInitialized();
+    const updated: Machine = {
+      ...machine,
+      updatedAt: new Date().toISOString(),
+      createdAt: machine.createdAt || new Date().toISOString(),
+    };
+    this.memMachines.set(updated.id, updated);
+    await this.persistChange();
   }
 
   async deleteMachine(id: string): Promise<{ success: boolean; error?: string }> {
+    await this.ensureInitialized();
     const tasks = await this.getAllTasks();
     const isUsed = tasks.some((t) => t.machineId === id || t.machine?.includes(id));
     if (isUsed) {
@@ -291,20 +608,9 @@ class StorageService {
       };
     }
 
-    if (!this.hasIndexedDB()) {
-      this.initMemoryStorage();
-      this.memMachines.delete(id);
-      return { success: true };
-    }
-
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction('machines', 'readwrite');
-      const store = tx.objectStore('machines');
-      const request = store.delete(id);
-      request.onsuccess = () => resolve({ success: true });
-      request.onerror = () => reject(request.error);
-    });
+    this.memMachines.delete(id);
+    await this.persistChange();
+    return { success: true };
   }
 
   async toggleMachineActive(id: string, active: boolean): Promise<void> {
@@ -319,55 +625,28 @@ class StorageService {
   // ==========================================
 
   async getAllMaterials(): Promise<RawMaterial[]> {
-    if (!this.hasIndexedDB()) {
-      this.initMemoryStorage();
-      return Array.from(this.memMaterials.values());
-    }
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction('materials', 'readonly');
-      const store = tx.objectStore('materials');
-      const request = store.getAll();
-      request.onsuccess = () => resolve(request.result || []);
-      request.onerror = () => reject(request.error);
-    });
+    await this.ensureInitialized();
+    return Array.from(this.memMaterials.values());
   }
 
   async getMaterialById(id: string): Promise<RawMaterial | null> {
-    if (!this.hasIndexedDB()) {
-      this.initMemoryStorage();
-      return this.memMaterials.get(id) || null;
-    }
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction('materials', 'readonly');
-      const store = tx.objectStore('materials');
-      const request = store.get(id);
-      request.onsuccess = () => resolve(request.result || null);
-      request.onerror = () => reject(request.error);
-    });
+    await this.ensureInitialized();
+    return this.memMaterials.get(id) || null;
   }
 
   async saveMaterial(material: RawMaterial): Promise<void> {
-    if (!this.hasIndexedDB()) {
-      this.initMemoryStorage();
-      this.memMaterials.set(material.id, { ...material, updatedAt: new Date().toISOString() });
-      return;
-    }
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction('materials', 'readwrite');
-      const store = tx.objectStore('materials');
-      const request = store.put({
-        ...material,
-        updatedAt: new Date().toISOString(),
-      });
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(request.error);
-    });
+    await this.ensureInitialized();
+    const updated: RawMaterial = {
+      ...material,
+      updatedAt: new Date().toISOString(),
+      createdAt: material.createdAt || new Date().toISOString(),
+    };
+    this.memMaterials.set(updated.id, updated);
+    await this.persistChange();
   }
 
   async deleteMaterial(id: string): Promise<{ success: boolean; error?: string }> {
+    await this.ensureInitialized();
     const products = await this.getAllProducts();
     const isUsed = products.some((p) =>
       p.materials?.some((m) => m.materialId === id)
@@ -379,20 +658,9 @@ class StorageService {
       };
     }
 
-    if (!this.hasIndexedDB()) {
-      this.initMemoryStorage();
-      this.memMaterials.delete(id);
-      return { success: true };
-    }
-
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction('materials', 'readwrite');
-      const store = tx.objectStore('materials');
-      const request = store.delete(id);
-      request.onsuccess = () => resolve({ success: true });
-      request.onerror = () => reject(request.error);
-    });
+    this.memMaterials.delete(id);
+    await this.persistChange();
+    return { success: true };
   }
 
   async toggleMaterialActive(id: string, active: boolean): Promise<void> {
@@ -407,80 +675,31 @@ class StorageService {
   // ==========================================
 
   async getAllTasks(): Promise<StandardTask[]> {
-    if (!this.hasIndexedDB()) {
-      this.initMemoryStorage();
-      return Array.from(this.memTasks.values());
-    }
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction('tasks', 'readonly');
-      const store = tx.objectStore('tasks');
-      const request = store.getAll();
-      request.onsuccess = () => {
-        resolve(request.result || []);
-      };
-      request.onerror = () => reject(request.error);
-    });
+    await this.ensureInitialized();
+    return Array.from(this.memTasks.values());
   }
 
   async getTaskById(id: string): Promise<StandardTask | null> {
-    if (!this.hasIndexedDB()) {
-      this.initMemoryStorage();
-      return this.memTasks.get(id) || null;
-    }
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction('tasks', 'readonly');
-      const store = tx.objectStore('tasks');
-      const request = store.get(id);
-      request.onsuccess = () => resolve(request.result || null);
-      request.onerror = () => reject(request.error);
-    });
+    await this.ensureInitialized();
+    return this.memTasks.get(id) || null;
   }
 
   async saveTask(task: StandardTask): Promise<void> {
-    if (!this.hasIndexedDB()) {
-      this.initMemoryStorage();
-      this.memTasks.set(task.id, { ...task, updatedAt: new Date().toISOString() });
-      return;
-    }
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction('tasks', 'readwrite');
-      const store = tx.objectStore('tasks');
-      const request = store.put({
-        ...task,
-        updatedAt: new Date().toISOString(),
-      });
-      request.onsuccess = () => {
-        this.memTasks.set(task.id, { ...task, updatedAt: new Date().toISOString() });
-        resolve();
-      };
-      request.onerror = () => reject(request.error);
-    });
+    await this.ensureInitialized();
+    const updated: StandardTask = {
+      ...task,
+      updatedAt: new Date().toISOString(),
+      createdAt: task.createdAt || new Date().toISOString(),
+    };
+    this.memTasks.set(updated.id, updated);
+    await this.persistChange();
   }
 
-  /**
-   * Exclusão permanente e imediata de tarefa / processo
-   */
   async deleteTask(id: string): Promise<{ success: boolean; error?: string }> {
-    if (!this.hasIndexedDB()) {
-      this.initMemoryStorage();
-      this.memTasks.delete(id);
-      return { success: true };
-    }
-
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction('tasks', 'readwrite');
-      const store = tx.objectStore('tasks');
-      const request = store.delete(id);
-      request.onsuccess = () => {
-        this.memTasks.delete(id);
-        resolve({ success: true });
-      };
-      request.onerror = () => reject(request.error);
-    });
+    await this.ensureInitialized();
+    this.memTasks.delete(id);
+    await this.persistChange();
+    return { success: true };
   }
 
   async toggleTaskActive(id: string, active: boolean): Promise<void> {
@@ -495,203 +714,80 @@ class StorageService {
   // ==========================================
 
   async getAllProducts(): Promise<Product[]> {
-    if (!this.hasIndexedDB()) {
-      this.initMemoryStorage();
-      return Array.from(this.memProducts.values());
-    }
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction('products', 'readonly');
-      const store = tx.objectStore('products');
-      const request = store.getAll();
-      request.onsuccess = () => {
-        resolve(request.result || []);
-      };
-      request.onerror = () => reject(request.error);
-    });
+    await this.ensureInitialized();
+    return Array.from(this.memProducts.values());
   }
 
   async getProductById(id: string): Promise<Product | null> {
-    if (!this.hasIndexedDB()) {
-      this.initMemoryStorage();
-      return this.memProducts.get(id) || null;
-    }
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction('products', 'readonly');
-      const store = tx.objectStore('products');
-      const request = store.get(id);
-      request.onsuccess = () => resolve(request.result || null);
-      request.onerror = () => reject(request.error);
-    });
+    await this.ensureInitialized();
+    return this.memProducts.get(id) || null;
   }
 
   async saveProduct(product: Product): Promise<void> {
-    if (!this.hasIndexedDB()) {
-      this.initMemoryStorage();
-      this.memProducts.set(product.id, { ...product, updatedAt: new Date().toISOString() });
-      return;
+    await this.ensureInitialized();
+    const updated: Product = {
+      ...product,
+      updatedAt: new Date().toISOString(),
+      createdAt: product.createdAt || new Date().toISOString(),
+    };
+    this.memProducts.set(updated.id, updated);
+
+    // Se o produto possuir actualRecord vinculado, sincroniza na coleção de actualRecords
+    if (updated.actualRecord) {
+      this.memActualRecords.set(updated.actualRecord.id, updated.actualRecord);
     }
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction('products', 'readwrite');
-      const store = tx.objectStore('products');
-      const request = store.put({
-        ...product,
-        updatedAt: new Date().toISOString(),
-      });
-      request.onsuccess = () => {
-        this.memProducts.set(product.id, { ...product, updatedAt: new Date().toISOString() });
-        resolve();
-      };
-      request.onerror = () => reject(request.error);
-    });
+
+    await this.persistChange();
   }
 
-  /**
-   * Exclusão permanente e imediata de produto / orçamento com cascata
-   * Remove em cascata registros de apontamentos (logs) e dados reais (actual_records)
-   */
   async deleteProduct(id: string): Promise<{ success: boolean; error?: string }> {
-    if (!this.hasIndexedDB()) {
-      this.initMemoryStorage();
-      this.memProducts.delete(id);
-      for (const [logId, l] of Array.from(this.memLogs.entries())) {
-        if (l.productId === id) this.memLogs.delete(logId);
-      }
-      for (const [recId, r] of Array.from(this.memActualRecords.entries())) {
-        if (r.productId === id) this.memActualRecords.delete(recId);
-      }
-      return { success: true };
+    await this.ensureInitialized();
+    this.memProducts.delete(id);
+
+    // Limpeza em cascata de logs e actualRecords vinculados
+    for (const [logId, l] of Array.from(this.memLogs.entries())) {
+      if (l.productId === id) this.memLogs.delete(logId);
+    }
+    for (const [recId, r] of Array.from(this.memActualRecords.entries())) {
+      if (r.productId === id) this.memActualRecords.delete(recId);
     }
 
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(['products', 'logs', 'actual_records'], 'readwrite');
-      const prodStore = tx.objectStore('products');
-      prodStore.delete(id);
-
-      const logStore = tx.objectStore('logs');
-      const index = logStore.index('productId');
-      const req = index.openCursor(IDBKeyRange.only(id));
-      req.onsuccess = (e) => {
-        const cursor = (e.target as IDBRequest<IDBCursorWithValue>).result;
-        if (cursor) {
-          cursor.delete();
-          cursor.continue();
-        }
-      };
-
-      const actualStore = tx.objectStore('actual_records');
-      const actualIndex = actualStore.index('productId');
-      const reqActual = actualIndex.openCursor(IDBKeyRange.only(id));
-      reqActual.onsuccess = (e) => {
-        const cursor = (e.target as IDBRequest<IDBCursorWithValue>).result;
-        if (cursor) {
-          cursor.delete();
-          cursor.continue();
-        }
-      };
-
-      tx.oncomplete = () => {
-        this.memProducts.delete(id);
-        for (const [logId, l] of Array.from(this.memLogs.entries())) {
-          if (l.productId === id) this.memLogs.delete(logId);
-        }
-        for (const [recId, r] of Array.from(this.memActualRecords.entries())) {
-          if (r.productId === id) this.memActualRecords.delete(recId);
-        }
-        resolve({ success: true });
-      };
-      tx.onerror = () => reject(tx.error);
-    });
+    await this.persistChange();
+    return { success: true };
   }
 
   // ==========================================
-  // APONTAMENTOS DE PRODUÇÃO (REALIZADO)
+  // APONTAMENTOS DE PRODUÇÃO (LOGS)
   // ==========================================
 
   async getAllLogs(): Promise<ProductionLog[]> {
-    if (!this.hasIndexedDB()) {
-      this.initMemoryStorage();
-      return Array.from(this.memLogs.values());
-    }
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction('logs', 'readonly');
-      const store = tx.objectStore('logs');
-      const request = store.getAll();
-      request.onsuccess = () => resolve(request.result || []);
-      request.onerror = () => reject(request.error);
-    });
+    await this.ensureInitialized();
+    return Array.from(this.memLogs.values());
   }
 
   async getLogsByProductId(productId: string): Promise<ProductionLog[]> {
-    if (!this.hasIndexedDB()) {
-      this.initMemoryStorage();
-      return Array.from(this.memLogs.values()).filter((l) => l.productId === productId);
-    }
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction('logs', 'readonly');
-      const store = tx.objectStore('logs');
-      const index = store.index('productId');
-      const request = index.getAll(productId);
-      request.onsuccess = () => resolve(request.result || []);
-      request.onerror = () => reject(request.error);
-    });
+    await this.ensureInitialized();
+    return Array.from(this.memLogs.values()).filter((l) => l.productId === productId);
   }
 
   async saveLog(log: ProductionLog): Promise<void> {
-    if (!this.hasIndexedDB()) {
-      this.initMemoryStorage();
-      this.memLogs.set(log.id, { ...log });
-      return;
-    }
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction('logs', 'readwrite');
-      const store = tx.objectStore('logs');
-      const request = store.put(log);
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(request.error);
-    });
+    await this.ensureInitialized();
+    const updated: ProductionLog = {
+      ...log,
+      createdAt: log.createdAt || new Date().toISOString(),
+    };
+    this.memLogs.set(updated.id, updated);
+    await this.persistChange();
   }
 
   async cancelLog(id: string, reason: string): Promise<void> {
-    if (!this.hasIndexedDB()) {
-      this.initMemoryStorage();
-      const log = this.memLogs.get(id);
-      if (log) {
-        log.cancelled = true;
-        log.cancelledAt = new Date().toISOString();
-        log.cancelledReason = reason;
-      }
-      return;
-    }
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction('logs', 'readwrite');
-      const store = tx.objectStore('logs');
-      const getReq = store.get(id);
-
-      getReq.onsuccess = () => {
-        const log = getReq.result as ProductionLog | undefined;
-        if (!log) {
-          reject(new Error('Apontamento não encontrado'));
-          return;
-        }
-        log.cancelled = true;
-        log.cancelledAt = new Date().toISOString();
-        log.cancelledReason = reason;
-
-        const putReq = store.put(log);
-        putReq.onsuccess = () => resolve();
-        putReq.onerror = () => reject(putReq.error);
-      };
-
-      getReq.onerror = () => reject(getReq.error);
-    });
+    await this.ensureInitialized();
+    const log = this.memLogs.get(id);
+    if (!log) throw new Error('Apontamento não encontrado');
+    log.cancelled = true;
+    log.cancelledAt = new Date().toISOString();
+    log.cancelledReason = reason;
+    await this.saveLog(log);
   }
 
   // ==========================================
@@ -699,51 +795,21 @@ class StorageService {
   // ==========================================
 
   async saveActualRecord(record: ActualRecord): Promise<void> {
-    if (!this.hasIndexedDB()) {
-      this.initMemoryStorage();
-      this.memActualRecords.set(record.id, { ...record });
-      const prod = this.memProducts.get(record.productId);
-      if (prod) {
-        prod.actualRecord = record;
-        if (prod.materials) {
-          prod.materials = prod.materials.map((m) => {
-            const act = record.materials.find(
-              (rm) => rm.materialItemId === m.id || rm.nome.toLowerCase() === m.nome.toLowerCase()
-            );
-            if (act) {
-              return {
-                ...m,
-                quantidadeReal: act.quantidadeReal,
-                custoUnitarioReal: act.custoUnitarioReal,
-                totalCustoReal: act.totalCustoReal,
-              };
-            }
-            return m;
-          });
-        }
-      }
-      return;
-    }
+    await this.ensureInitialized();
+    const updated: ActualRecord = {
+      ...record,
+      updatedAt: new Date().toISOString(),
+      createdAt: record.createdAt || new Date().toISOString(),
+    };
+    this.memActualRecords.set(updated.id, updated);
 
-    const db = await this.getDB();
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction('actual_records', 'readwrite');
-      const store = tx.objectStore('actual_records');
-      const request = store.put({
-        ...record,
-        updatedAt: new Date().toISOString(),
-      });
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(request.error);
-    });
-
-    // Atualiza também no produto para sincronização direta
-    const product = await this.getProductById(record.productId);
-    if (product) {
-      product.actualRecord = record;
-      if (product.materials) {
-        product.materials = product.materials.map((m) => {
-          const act = record.materials.find(
+    // Sincroniza diretamente no produto correspondente
+    const prod = this.memProducts.get(record.productId);
+    if (prod) {
+      prod.actualRecord = updated;
+      if (prod.materials) {
+        prod.materials = prod.materials.map((m) => {
+          const act = updated.materials.find(
             (rm) => rm.materialItemId === m.id || rm.nome.toLowerCase() === m.nome.toLowerCase()
           );
           if (act) {
@@ -757,9 +823,9 @@ class StorageService {
           return m;
         });
       }
-      if (product.activeRevision?.materials) {
-        product.activeRevision.materials = product.activeRevision.materials.map((m) => {
-          const act = record.materials.find(
+      if (prod.activeRevision?.materials) {
+        prod.activeRevision.materials = prod.activeRevision.materials.map((m) => {
+          const act = updated.materials.find(
             (rm) => rm.materialItemId === m.id || rm.nome.toLowerCase() === m.nome.toLowerCase()
           );
           if (act) {
@@ -773,72 +839,24 @@ class StorageService {
           return m;
         });
       }
-      await this.saveProduct(product);
+      this.memProducts.set(prod.id, prod);
     }
+
+    await this.persistChange();
   }
 
   async getActualRecordByProduct(productId: string): Promise<ActualRecord | null> {
-    if (!this.hasIndexedDB()) {
-      this.initMemoryStorage();
-      for (const r of this.memActualRecords.values()) {
-        if (r.productId === productId) return r;
-      }
-      const prod = this.memProducts.get(productId);
-      return prod?.actualRecord || null;
+    await this.ensureInitialized();
+    for (const r of this.memActualRecords.values()) {
+      if (r.productId === productId) return r;
     }
-
-    const product = await this.getProductById(productId);
-    if (product?.actualRecord) {
-      return product.actualRecord;
-    }
-
-    const db = await this.getDB();
-    return new Promise((resolve) => {
-      try {
-        if (!db.objectStoreNames.contains('actual_records')) {
-          resolve(null);
-          return;
-        }
-        const tx = db.transaction('actual_records', 'readonly');
-        const store = tx.objectStore('actual_records');
-        const index = store.index('productId');
-        const req = index.getAll(productId);
-        req.onsuccess = () => {
-          const list = req.result as ActualRecord[] | undefined;
-          if (list && list.length > 0) {
-            resolve(list[list.length - 1]);
-          } else {
-            resolve(null);
-          }
-        };
-        req.onerror = () => resolve(null);
-      } catch {
-        resolve(null);
-      }
-    });
+    const prod = this.memProducts.get(productId);
+    return prod?.actualRecord || null;
   }
 
   async getAllActualRecords(): Promise<ActualRecord[]> {
-    if (!this.hasIndexedDB()) {
-      this.initMemoryStorage();
-      return Array.from(this.memActualRecords.values());
-    }
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
-      try {
-        if (!db.objectStoreNames.contains('actual_records')) {
-          resolve([]);
-          return;
-        }
-        const tx = db.transaction('actual_records', 'readonly');
-        const store = tx.objectStore('actual_records');
-        const req = store.getAll();
-        req.onsuccess = () => resolve(req.result || []);
-        req.onerror = () => reject(req.error);
-      } catch {
-        resolve([]);
-      }
-    });
+    await this.ensureInitialized();
+    return Array.from(this.memActualRecords.values());
   }
 
   // ==========================================
@@ -846,14 +864,13 @@ class StorageService {
   // ==========================================
 
   async exportBackup(): Promise<string> {
-    const [machines, materials, tasks, products, logs, actualRecords] = await Promise.all([
-      this.getAllMachines(),
-      this.getAllMaterials(),
-      this.getAllTasks(),
-      this.getAllProducts(),
-      this.getAllLogs(),
-      this.getAllActualRecords(),
-    ]);
+    await this.ensureInitialized();
+    const machines = Array.from(this.memMachines.values());
+    const materials = Array.from(this.memMaterials.values());
+    const tasks = Array.from(this.memTasks.values());
+    const products = Array.from(this.memProducts.values());
+    const logs = Array.from(this.memLogs.values());
+    const actualRecords = Array.from(this.memActualRecords.values());
 
     const backup: BackupData = {
       format: 'GRAFICACUSTOS_BACKUP',
@@ -890,12 +907,34 @@ class StorageService {
       if (!Array.isArray(parsed.tasks) || !Array.isArray(parsed.products) || !Array.isArray(parsed.logs)) {
         return {
           valid: false,
-          error: 'Estrutura corrompida: coleções de tarefas, produtos ou apontamentos ausentes.',
+          error: 'Estrutura corrompida: coleções essenciais de tarefas, produtos ou apontamentos ausentes.',
         };
       }
+
+      // Normaliza coleções adicionais se ausentes em backups legados
+      const normalized: BackupData = {
+        format: 'GRAFICACUSTOS_BACKUP',
+        version: parsed.version || DB_VERSION,
+        exportedAt: parsed.exportedAt || new Date().toISOString(),
+        machines: Array.isArray(parsed.machines) ? parsed.machines : [],
+        materials: Array.isArray(parsed.materials) ? parsed.materials : [],
+        tasks: parsed.tasks,
+        products: parsed.products,
+        logs: parsed.logs,
+        actualRecords: Array.isArray(parsed.actualRecords) ? parsed.actualRecords : [],
+        counts: {
+          machines: Array.isArray(parsed.machines) ? parsed.machines.length : 0,
+          materials: Array.isArray(parsed.materials) ? parsed.materials.length : 0,
+          tasks: parsed.tasks.length,
+          products: parsed.products.length,
+          logs: parsed.logs.length,
+          actualRecords: Array.isArray(parsed.actualRecords) ? parsed.actualRecords.length : 0,
+        },
+      };
+
       return {
         valid: true,
-        data: parsed as BackupData,
+        data: normalized,
       };
     } catch (e) {
       return {
@@ -906,104 +945,49 @@ class StorageService {
   }
 
   async restoreBackup(backup: BackupData, mode: 'REPLACE' | 'MERGE'): Promise<void> {
-    if (!this.hasIndexedDB()) {
-      if (mode === 'REPLACE') {
-        this.memMachines.clear();
-        this.memMaterials.clear();
-        this.memTasks.clear();
-        this.memProducts.clear();
-        this.memLogs.clear();
-      }
-      if (backup.machines) for (const m of backup.machines) this.memMachines.set(m.id, m);
-      if (backup.materials) for (const mat of backup.materials) this.memMaterials.set(mat.id, mat);
-      for (const t of backup.tasks) this.memTasks.set(t.id, t);
-      for (const p of backup.products) this.memProducts.set(p.id, p);
-      for (const l of backup.logs) this.memLogs.set(l.id, l);
-      return;
-    }
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(['machines', 'materials', 'tasks', 'products', 'logs'], 'readwrite');
-      const machStore = tx.objectStore('machines');
-      const matStore = tx.objectStore('materials');
-      const taskStore = tx.objectStore('tasks');
-      const prodStore = tx.objectStore('products');
-      const logStore = tx.objectStore('logs');
+    await this.ensureInitialized();
+    this.setStatus('saving');
 
-      if (mode === 'REPLACE') {
-        machStore.clear();
-        matStore.clear();
-        taskStore.clear();
-        prodStore.clear();
-        logStore.clear();
-      }
-
-      if (backup.machines) {
-        for (const m of backup.machines) machStore.put(m);
-      }
-      if (backup.materials) {
-        for (const mat of backup.materials) matStore.put(mat);
-      }
-      for (const t of backup.tasks) {
-        taskStore.put(t);
-      }
-      for (const p of backup.products) {
-        prodStore.put(p);
-      }
-      for (const l of backup.logs) {
-        logStore.put(l);
-      }
-
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
-  }
-
-  async resetToSeedData(): Promise<void> {
-    if (!this.hasIndexedDB()) {
+    if (mode === 'REPLACE') {
       this.memMachines.clear();
       this.memMaterials.clear();
       this.memTasks.clear();
       this.memProducts.clear();
       this.memLogs.clear();
-      this.memInitialized = false;
-      this.initMemoryStorage();
-      return;
+      this.memActualRecords.clear();
     }
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(['machines', 'materials', 'tasks', 'products', 'logs'], 'readwrite');
-      const machStore = tx.objectStore('machines');
-      const matStore = tx.objectStore('materials');
-      const taskStore = tx.objectStore('tasks');
-      const prodStore = tx.objectStore('products');
-      const logStore = tx.objectStore('logs');
 
-      machStore.clear();
-      matStore.clear();
-      taskStore.clear();
-      prodStore.clear();
-      logStore.clear();
+    if (Array.isArray(backup.machines)) {
+      for (const m of backup.machines) this.memMachines.set(m.id, m);
+    }
+    if (Array.isArray(backup.materials)) {
+      for (const mat of backup.materials) this.memMaterials.set(mat.id, mat);
+    }
+    if (Array.isArray(backup.tasks)) {
+      for (const t of backup.tasks) this.memTasks.set(t.id, t);
+    }
+    if (Array.isArray(backup.products)) {
+      for (const p of backup.products) {
+        this.memProducts.set(p.id, p);
+        if (p.actualRecord) {
+          this.memActualRecords.set(p.actualRecord.id, p.actualRecord);
+        }
+      }
+    }
+    if (Array.isArray(backup.logs)) {
+      for (const l of backup.logs) this.memLogs.set(l.id, l);
+    }
+    if (Array.isArray(backup.actualRecords)) {
+      for (const r of backup.actualRecords) this.memActualRecords.set(r.id, r);
+    }
 
-      for (const mach of INITIAL_MACHINES) {
-        machStore.put(mach);
-      }
-      for (const mat of INITIAL_RAW_MATERIALS) {
-        matStore.put(mat);
-      }
-      for (const task of INITIAL_STANDARD_TASKS) {
-        taskStore.put(task);
-      }
-      for (const prod of INITIAL_PRODUCTS) {
-        prodStore.put(prod);
-      }
-      for (const log of INITIAL_PRODUCTION_LOGS) {
-        logStore.put(log);
-      }
+    await this.persistChange();
+  }
 
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
+  async resetToSeedData(): Promise<void> {
+    await this.ensureInitialized();
+    this.loadSeedDataIntoMemory();
+    await this.persistChange();
   }
 }
 
