@@ -12,6 +12,10 @@ import {
   INITIAL_RAW_MATERIALS,
 } from './seedData';
 
+import { googleDriveService, DRIVE_DATABASE_FILENAME, DriveFileInfo } from './googleDriveService';
+import { getCachedAccessToken, googleSignOut } from './googleAuth';
+import type { User } from 'firebase/auth';
+
 const DB_NAME = 'graficacustos_db_v1';
 const DB_VERSION = 4;
 const LOCAL_STORAGE_KEY = 'graficacustos_snapshot_v1';
@@ -20,7 +24,18 @@ const LOCAL_STORAGE_META_KEY = 'graficacustos_meta_v1';
 export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
 export interface StorageStatusListener {
-  (status: SaveStatus, lastSavedAt?: Date, errorMsg?: string): void;
+  (
+    status: SaveStatus,
+    lastSavedAt?: Date,
+    errorMsg?: string,
+    isDriveConnected?: boolean,
+    driveDetails?: {
+      fileId: string | null;
+      fileName: string;
+      lastSyncAt: Date | null;
+      userEmail: string | null;
+    }
+  ): void;
 }
 
 export interface BackupData {
@@ -75,6 +90,13 @@ class StorageService {
   private dataChangeListeners: Set<() => void> = new Set();
   private saveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
+  // Integração com Google Drive
+  private isDriveConnected: boolean = false;
+  private driveFileId: string | null = null;
+  private driveUser: User | null = null;
+  private driveLastSyncAt: Date | null = null;
+  private driveUploadDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
   constructor() {
     // Sincroniza abas/janelas via Storage Event
     if (typeof window !== 'undefined') {
@@ -109,10 +131,33 @@ class StorageService {
     };
   }
 
+  public getDriveDetails() {
+    return {
+      isConnected: this.isDriveConnected,
+      fileId: this.driveFileId,
+      fileName: DRIVE_DATABASE_FILENAME,
+      lastSyncAt: this.driveLastSyncAt,
+      userEmail: this.driveUser?.email || null,
+      userName: this.driveUser?.displayName || null,
+      userPhoto: this.driveUser?.photoURL || null,
+    };
+  }
+
   public subscribeStatus(listener: StorageStatusListener): () => void {
     this.statusListeners.add(listener);
     // Dispara estado atual imediatamente para o novo ouvinte
-    listener(this.currentStatus, this.lastSavedAt, this.lastError || undefined);
+    listener(
+      this.currentStatus,
+      this.lastSavedAt,
+      this.lastError || undefined,
+      this.isDriveConnected,
+      {
+        fileId: this.driveFileId,
+        fileName: DRIVE_DATABASE_FILENAME,
+        lastSyncAt: this.driveLastSyncAt,
+        userEmail: this.driveUser?.email || null,
+      }
+    );
     return () => this.statusListeners.delete(listener);
   }
 
@@ -126,7 +171,18 @@ class StorageService {
     }
     this.statusListeners.forEach((l) => {
       try {
-        l(this.currentStatus, this.lastSavedAt, this.lastError || undefined);
+        l(
+          this.currentStatus,
+          this.lastSavedAt,
+          this.lastError || undefined,
+          this.isDriveConnected,
+          {
+            fileId: this.driveFileId,
+            fileName: DRIVE_DATABASE_FILENAME,
+            lastSyncAt: this.driveLastSyncAt,
+            userEmail: this.driveUser?.email || null,
+          }
+        );
       } catch (err) {
         console.error('Erro em ouvinte de status do storage:', err);
       }
@@ -429,7 +485,8 @@ class StorageService {
 
   /**
    * Gravação centralizada de qualquer entidade.
-   * Atualiza a memória, o espelho do localStorage e o IndexedDB com garantia de status.
+   * Atualiza a memória, o espelho do localStorage e o IndexedDB com garantia de status,
+   * e agenda sincronização automática com o Google Drive caso conectado.
    */
   private async persistChange(): Promise<void> {
     this.setStatus('saving');
@@ -457,6 +514,181 @@ class StorageService {
         throw err;
       }
     }
+
+    // 3. Agenda persistência no Google Drive se usuário estiver conectado
+    if (this.isDriveConnected) {
+      this.scheduleDriveSync();
+    }
+  }
+
+  // ==========================================
+  // SINCRONIZAÇÃO E PERSISTÊNCIA GOOGLE DRIVE
+  // ==========================================
+
+  public async connectGoogleDrive(
+    token: string,
+    user: User,
+    mode: 'PULL_FIRST' | 'PUSH' = 'PULL_FIRST'
+  ): Promise<{ action: 'PULLED' | 'CREATED' | 'PUSHED'; fileId: string }> {
+    this.isDriveConnected = true;
+    this.driveUser = user;
+    this.setStatus('saving');
+
+    try {
+      const existingFile = await googleDriveService.findDatabaseFile(token);
+
+      if (!existingFile) {
+        // Arquivo ainda não existe no Google Drive do usuário: cria com a base atual
+        const snapshot = this.createSnapshotFromMemory();
+        const created = await googleDriveService.createDatabaseFile(token, snapshot);
+        this.driveFileId = created.id;
+        this.driveLastSyncAt = new Date();
+        this.setStatus('saved');
+        return { action: 'CREATED', fileId: created.id };
+      }
+
+      this.driveFileId = existingFile.id;
+
+      if (mode === 'PUSH') {
+        const snapshot = this.createSnapshotFromMemory();
+        await googleDriveService.updateDatabaseFile(token, existingFile.id, snapshot);
+        this.driveLastSyncAt = new Date();
+        this.setStatus('saved');
+        return { action: 'PUSHED', fileId: existingFile.id };
+      }
+
+      // PULL_FIRST: Lê os dados mais recentes do Google Drive (ex: alterações feitas na empresa ou em casa)
+      const cloudSnapshot = await googleDriveService.downloadDatabaseFile(token, existingFile.id);
+      if (
+        cloudSnapshot &&
+        (Array.isArray(cloudSnapshot.products) ||
+          Array.isArray(cloudSnapshot.tasks) ||
+          Array.isArray(cloudSnapshot.machines))
+      ) {
+        this.loadSnapshotIntoMemory(cloudSnapshot);
+        this.persistImmediateSnapshot();
+        const db = await this.getDB();
+        if (db) {
+          await this.writeAllToIDB(db, cloudSnapshot);
+        }
+        this.driveLastSyncAt = new Date();
+        this.setStatus('saved');
+        this.notifyDataChange();
+        return { action: 'PULLED', fileId: existingFile.id };
+      } else {
+        // Se arquivo cloud estiver vazio ou incompatível, sobe a base local existente
+        const snapshot = this.createSnapshotFromMemory();
+        await googleDriveService.updateDatabaseFile(token, existingFile.id, snapshot);
+        this.driveLastSyncAt = new Date();
+        this.setStatus('saved');
+        return { action: 'PUSHED', fileId: existingFile.id };
+      }
+    } catch (err: any) {
+      console.error('Erro na conexão/sincronização com Google Drive:', err);
+      this.setStatus('error', err?.message === 'AUTH_EXPIRED' ? 'Sessão Google expirada' : 'Erro ao sincronizar');
+      throw err;
+    }
+  }
+
+  public async disconnectGoogleDrive(): Promise<void> {
+    this.isDriveConnected = false;
+    this.driveFileId = null;
+    this.driveUser = null;
+    this.driveLastSyncAt = null;
+    if (this.driveUploadDebounceTimer) {
+      clearTimeout(this.driveUploadDebounceTimer);
+      this.driveUploadDebounceTimer = null;
+    }
+    await googleSignOut();
+    this.setStatus('saved');
+  }
+
+  public async forcePushToDrive(): Promise<void> {
+    const token = getCachedAccessToken();
+    if (!token) throw new Error('Não autenticado com o Google Drive');
+    this.setStatus('saving');
+    try {
+      const snapshot = this.createSnapshotFromMemory();
+      if (this.driveFileId) {
+        await googleDriveService.updateDatabaseFile(token, this.driveFileId, snapshot);
+      } else {
+        const created = await googleDriveService.createDatabaseFile(token, snapshot);
+        this.driveFileId = created.id;
+      }
+      this.driveLastSyncAt = new Date();
+      this.setStatus('saved');
+    } catch (err: any) {
+      console.error('Erro ao forçar envio para o Google Drive:', err);
+      this.setStatus('error', 'Erro ao sincronizar');
+      throw err;
+    }
+  }
+
+  public async forcePullFromDrive(): Promise<void> {
+    const token = getCachedAccessToken();
+    if (!token) throw new Error('Não autenticado com o Google Drive');
+    if (!this.driveFileId) {
+      const file = await googleDriveService.findDatabaseFile(token);
+      if (!file) throw new Error('Arquivo de banco de dados não encontrado no Google Drive');
+      this.driveFileId = file.id;
+    }
+
+    this.setStatus('saving');
+    try {
+      const cloudSnapshot = await googleDriveService.downloadDatabaseFile(token, this.driveFileId);
+      this.loadSnapshotIntoMemory(cloudSnapshot);
+      this.persistImmediateSnapshot();
+      const db = await this.getDB();
+      if (db) {
+        await this.writeAllToIDB(db, cloudSnapshot);
+      }
+      this.driveLastSyncAt = new Date();
+      this.setStatus('saved');
+      this.notifyDataChange();
+    } catch (err: any) {
+      console.error('Erro ao restaurar do Google Drive:', err);
+      this.setStatus('error', 'Erro ao sincronizar');
+      throw err;
+    }
+  }
+
+  private scheduleDriveSync() {
+    if (!this.isDriveConnected) return;
+    const token = getCachedAccessToken();
+    if (!token) return;
+
+    if (this.driveUploadDebounceTimer) {
+      clearTimeout(this.driveUploadDebounceTimer);
+    }
+
+    this.driveUploadDebounceTimer = setTimeout(async () => {
+      try {
+        const currentToken = getCachedAccessToken();
+        if (!currentToken || !this.isDriveConnected) return;
+
+        this.setStatus('saving');
+        const snapshot = this.createSnapshotFromMemory();
+
+        if (this.driveFileId) {
+          await googleDriveService.updateDatabaseFile(currentToken, this.driveFileId, snapshot);
+        } else {
+          const file = await googleDriveService.findDatabaseFile(currentToken);
+          if (file) {
+            this.driveFileId = file.id;
+            await googleDriveService.updateDatabaseFile(currentToken, file.id, snapshot);
+          } else {
+            const created = await googleDriveService.createDatabaseFile(currentToken, snapshot);
+            this.driveFileId = created.id;
+          }
+        }
+
+        this.driveLastSyncAt = new Date();
+        this.setStatus('saved');
+      } catch (err: any) {
+        console.error('Erro no salvamento automático no Google Drive:', err);
+        this.setStatus('error', 'Erro ao sincronizar');
+      }
+    }, 700);
   }
 
   private async readAllFromIDB(db: IDBDatabase): Promise<StorageSnapshot | null> {

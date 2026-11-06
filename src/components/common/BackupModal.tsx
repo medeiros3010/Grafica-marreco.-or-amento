@@ -118,18 +118,18 @@ export const BackupModal: React.FC<BackupModalProps> = ({
       maxWidth="xl"
     >
       <div className="space-y-6">
-        {/* Aviso de Armazenamento Local Mandatório */}
+        {/* Aviso de Armazenamento e Sincronização Google Drive */}
         <div className="bg-[#01B8AA]/10 border border-[#01B8AA]/30 rounded-xl p-4 flex gap-3 text-xs text-slate-700">
           <Database className="w-5 h-5 text-[#01B8AA] shrink-0 mt-0.5" />
           <div className="space-y-1">
             <p className="font-semibold text-slate-900">
-              Armazenamento 100% Local (IndexedDB)
+              Sincronização com Google Drive & Armazenamento Local
             </p>
             <p>
-              Todos os cadastros, orçamentos e apontamentos são gravados com segurança na memória do seu navegador. Os dados permanecem preservados ao fechar e reabrir a janela, mas <strong>não são sincronizados automaticamente entre computadores diferentes</strong>.
+              Ao conectar sua conta Google, todas as alterações são salvas automaticamente no arquivo <code className="font-mono text-slate-900 font-semibold bg-white px-1.5 py-0.5 rounded border border-slate-300">dados_grafica_database.json</code> no seu Google Drive, permitindo continuar seu trabalho em qualquer computador (casa ou empresa).
             </p>
             <p className="text-slate-600">
-              Utilize o backup em arquivo JSON abaixo para transferir dados para outra máquina ou criar cópias de segurança periódicas.
+              Você também pode exportar e importar cópias de segurança em arquivos JSON avulsos pelos botões abaixo.
             </p>
           </div>
         </div>

@@ -14,7 +14,10 @@ import { ComparisonView } from './components/analysis/ComparisonView';
 import { RawMaterialsView } from './components/materials/RawMaterialsView';
 import { BackupModal } from './components/common/BackupModal';
 import { TestsModal } from './components/common/TestsModal';
+import { GoogleDriveModal } from './components/common/GoogleDriveModal';
+import { GoogleAuthStartupModal } from './components/common/GoogleAuthStartupModal';
 import { storage } from './services/storage';
+import { initAuth } from './services/googleAuth';
 import { StandardTask, Product, ProductionLog, Machine, RawMaterial } from './types';
 import { Loader2 } from 'lucide-react';
 
@@ -31,6 +34,8 @@ export default function App() {
   // Modais utilitários
   const [isBackupOpen, setIsBackupOpen] = useState(false);
   const [isTestsOpen, setIsTestsOpen] = useState(false);
+  const [isDriveModalOpen, setIsDriveModalOpen] = useState(false);
+  const [isAuthStartupModalOpen, setIsAuthStartupModalOpen] = useState(false);
 
   const loadAllData = async () => {
     try {
@@ -68,10 +73,34 @@ export default function App() {
 
   useEffect(() => {
     loadAllData();
-    const unsubscribe = storage.subscribeDataChange(() => {
+    const unsubscribeData = storage.subscribeDataChange(() => {
       loadAllData();
     });
-    return unsubscribe;
+
+    // Inicialização da sincronização com o Google Drive via OAuth2
+    const unsubscribeAuth = initAuth(async (user, token) => {
+      if (user && token) {
+        try {
+          // Lê os dados mais recentes do Google Drive
+          await storage.connectGoogleDrive(token, user, 'PULL_FIRST');
+          await loadAllData();
+        } catch (e) {
+          console.error('Erro na sincronização inicial do Google Drive:', e);
+        }
+      } else if (!user) {
+        // Exibe modal de autenticação na inicialização se ainda não exibido na sessão
+        const hasPrompted = sessionStorage.getItem('grafica_drive_prompted_v1');
+        if (!hasPrompted) {
+          sessionStorage.setItem('grafica_drive_prompted_v1', 'true');
+          setIsAuthStartupModalOpen(true);
+        }
+      }
+    });
+
+    return () => {
+      unsubscribeData();
+      unsubscribeAuth();
+    };
   }, []);
 
   const handleGoToLogs = (productId: string) => {
@@ -116,7 +145,7 @@ export default function App() {
 
       {/* Conteúdo Principal */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Barra Superior de Contexto */}
+        {/* Barra Superior de Contexto com Indicador de Persistência no Google Drive */}
         <Header
           activeTab={activeTab}
           currentProductTitle={
@@ -126,6 +155,8 @@ export default function App() {
                 : undefined
               : undefined
           }
+          onOpenGoogleDriveModal={() => setIsDriveModalOpen(true)}
+          onOpenGoogleAuth={() => setIsAuthStartupModalOpen(true)}
         />
 
         {/* Viewport de Conteúdo com Rolagem */}
@@ -191,6 +222,20 @@ export default function App() {
           </div>
         </main>
       </div>
+
+      {/* Modal de Gerenciamento da Integração com o Google Drive */}
+      <GoogleDriveModal
+        isOpen={isDriveModalOpen}
+        onClose={() => setIsDriveModalOpen(false)}
+        onDataChanged={loadAllData}
+      />
+
+      {/* Modal de Conexão Google na Inicialização */}
+      <GoogleAuthStartupModal
+        isOpen={isAuthStartupModalOpen}
+        onClose={() => setIsAuthStartupModalOpen(false)}
+        onSyncComplete={loadAllData}
+      />
 
       {/* Modal de Backup e Restauração de Dados em JSON */}
       <BackupModal

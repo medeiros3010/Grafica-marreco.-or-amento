@@ -6,13 +6,15 @@
 import React, { useState, useEffect } from 'react';
 import { ActiveTab } from './Sidebar';
 import { storage, SaveStatus } from '../../services/storage';
-import { CheckCircle2, Loader2, AlertCircle, CloudCheck } from 'lucide-react';
+import { CheckCircle2, Loader2, AlertCircle, Cloud, RefreshCw } from 'lucide-react';
 
 interface HeaderProps {
   activeTab: ActiveTab;
   currentProductTitle?: string;
   onNewAction?: () => void;
   newActionLabel?: string;
+  onOpenGoogleDriveModal?: () => void;
+  onOpenGoogleAuth?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -20,16 +22,27 @@ export const Header: React.FC<HeaderProps> = ({
   currentProductTitle,
   onNewAction,
   newActionLabel,
+  onOpenGoogleDriveModal,
+  onOpenGoogleAuth,
 }) => {
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
   const [lastSaved, setLastSaved] = useState<Date>(new Date());
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [isDriveConnected, setIsDriveConnected] = useState<boolean>(false);
+  const [driveDetails, setDriveDetails] = useState<{
+    fileId: string | null;
+    fileName: string;
+    lastSyncAt: Date | null;
+    userEmail: string | null;
+  } | null>(null);
 
   useEffect(() => {
-    const unsubscribe = storage.subscribeStatus((status, time, err) => {
+    const unsubscribe = storage.subscribeStatus((status, time, err, isDrive, driveInfo) => {
       setSaveStatus(status);
       if (time) setLastSaved(time);
       setErrorMsg(err || null);
+      if (typeof isDrive === 'boolean') setIsDriveConnected(isDrive);
+      if (driveInfo) setDriveDetails(driveInfo);
     });
     return unsubscribe;
   }, []);
@@ -67,6 +80,20 @@ export const Header: React.FC<HeaderProps> = ({
     return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   };
 
+  // Rótulos de persistência rigorosamente conforme solicitado:
+  // "Salvando no Google Drive...", "Salvo no Google Drive", "Erro ao sincronizar"
+  const getPersistenceBadgeText = () => {
+    if (isDriveConnected) {
+      if (saveStatus === 'saving') return 'Salvando no Google Drive...';
+      if (saveStatus === 'error') return 'Erro ao sincronizar';
+      return 'Salvo no Google Drive';
+    } else {
+      if (saveStatus === 'saving') return 'Salvando...';
+      if (saveStatus === 'error') return 'Erro ao salvar';
+      return 'Salvo localmente';
+    }
+  };
+
   return (
     <header className="h-16 px-6 bg-white border-b border-gray-200/90 flex items-center justify-between shrink-0 shadow-xs z-10">
       {/* Zone 1 & 2: Title & Breadcrumb */}
@@ -91,46 +118,100 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
 
-      {/* Zone 3: Status de Salvamento Automático & Ação Principal */}
+      {/* Zone 3: Status de Persistência no Google Drive & Ações */}
       <div className="flex items-center gap-3 shrink-0">
-        {/* Indicador Visual Centralizado de Salvamento Automático */}
+        {/* Indicador Visual Centralizado de Persistência */}
         <div
-          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-all duration-300 border ${
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-300 border ${
             saveStatus === 'saving'
               ? 'bg-amber-50 text-amber-700 border-amber-200'
               : saveStatus === 'error'
               ? 'bg-rose-50 text-rose-700 border-rose-200'
-              : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+              : isDriveConnected
+              ? 'bg-emerald-50 text-emerald-800 border-emerald-200 shadow-2xs'
+              : 'bg-slate-50 text-slate-700 border-slate-200'
           }`}
           title={
-            saveStatus === 'saving'
-              ? 'Persistindo alterações em tempo real no armazenamento centralizado...'
-              : saveStatus === 'error'
-              ? `Falha ao persistir: ${errorMsg || 'Erro no banco'}`
-              : `Todos os dados salvos com sucesso às ${formatSavedTime(lastSaved)}`
+            isDriveConnected
+              ? saveStatus === 'saving'
+                ? 'Sincronizando arquivo dados_grafica_database.json diretamente no Google Drive...'
+                : saveStatus === 'error'
+                ? `Falha ao persistir no Google Drive: ${errorMsg || 'Erro na nuvem'}`
+                : `Arquivo dados_grafica_database.json sincronizado no Google Drive às ${formatSavedTime(lastSaved)}`
+              : `Salvo localmente no navegador às ${formatSavedTime(lastSaved)}. Conecte o Google Drive para persistir em nuvem.`
           }
         >
           {saveStatus === 'saving' && (
             <>
               <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-600" />
-              <span className="text-[11px] font-semibold tracking-wide">Salvando...</span>
+              <span className="text-[11px] font-semibold tracking-wide">
+                {getPersistenceBadgeText()}
+              </span>
             </>
           )}
 
           {saveStatus === 'saved' && (
             <>
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-              <span className="text-[11px] font-semibold tracking-wide">Salvo</span>
+              <CheckCircle2 className={`w-3.5 h-3.5 ${isDriveConnected ? 'text-emerald-600' : 'text-slate-500'}`} />
+              <span className="text-[11px] font-semibold tracking-wide">
+                {getPersistenceBadgeText()}
+              </span>
             </>
           )}
 
           {saveStatus === 'error' && (
             <>
               <AlertCircle className="w-3.5 h-3.5 text-rose-600" />
-              <span className="text-[11px] font-semibold tracking-wide">Erro ao salvar</span>
+              <span className="text-[11px] font-semibold tracking-wide">
+                {getPersistenceBadgeText()}
+              </span>
             </>
           )}
         </div>
+
+        {/* Botão de Conexão / Gerenciamento do Google Drive */}
+        {isDriveConnected ? (
+          <button
+            type="button"
+            onClick={onOpenGoogleDriveModal}
+            className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-lg text-xs font-medium transition-colors cursor-pointer"
+            title="Gerenciar conexão com o Google Drive"
+          >
+            <Cloud className="w-4 h-4 text-[#01B8AA]" />
+            <span className="hidden md:inline font-mono text-[11px] max-w-[130px] truncate">
+              {driveDetails?.userEmail || 'Google Drive'}
+            </span>
+            <span className="w-2 h-2 rounded-full bg-emerald-500" />
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onOpenGoogleAuth}
+            className="flex items-center gap-2 px-3 py-1.5 bg-white hover:bg-slate-50 border border-slate-300 hover:border-[#01B8AA] text-slate-700 rounded-lg text-xs font-semibold shadow-2xs transition-all cursor-pointer"
+            title="Conectar ao Google Drive para sincronizar entre empresa e casa"
+          >
+            <svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" className="w-3.5 h-3.5">
+              <path
+                fill="#EA4335"
+                d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"
+              />
+              <path
+                fill="#4285F4"
+                d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"
+              />
+              <path
+                fill="#FBBC05"
+                d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"
+              />
+              <path
+                fill="#34A853"
+                d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"
+              />
+              <path fill="none" d="M0 0h48v48H0z" />
+            </svg>
+            <span className="hidden sm:inline">Conectar Google Drive</span>
+          </button>
+        )}
 
         {/* Botão de Nova Ação Primária se aplicável */}
         {onNewAction && newActionLabel && (
