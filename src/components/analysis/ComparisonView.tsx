@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Product,
   ProductionLog,
@@ -65,7 +65,24 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
   onSelectProduct,
   onGoToLogs,
 }) => {
-  const activeProductId = selectedProductId || products[0]?.id || '';
+  // Garante seleção estável e imune a resets forçados
+  const activeProductId = useMemo(() => {
+    const cachedId =
+      typeof window !== 'undefined' ? sessionStorage.getItem('grafica_selected_product_id') : null;
+    const targetId = selectedProductId || cachedId;
+    if (targetId && products.some((p) => p.id === targetId)) {
+      return targetId;
+    }
+    return products[0]?.id || '';
+  }, [selectedProductId, products]);
+
+  const handleSelectProductChange = (newId: string) => {
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('grafica_selected_product_id', newId);
+    }
+    onSelectProduct(newId);
+  };
+
   const currentProduct = products.find((p) => p.id === activeProductId);
 
   const [sortOption, setSortOption] = useState<SortOption>('EXCESS_COST');
@@ -225,7 +242,7 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
           </label>
           <select
             value={activeProductId}
-            onChange={(e) => onSelectProduct(e.target.value)}
+            onChange={(e) => handleSelectProductChange(e.target.value)}
             className="w-full md:max-w-md px-3 py-2 text-sm font-semibold border border-gray-300 rounded-lg bg-white text-[#374151] focus:ring-2 focus:ring-[#01B8AA] focus:outline-none"
           >
             {products.map((p) => (

@@ -9,7 +9,18 @@ import { GoogleSignInButton } from './GoogleSignInButton';
 import { googleSignIn } from '../../services/googleAuth';
 import { storage } from '../../services/storage';
 import { DRIVE_DATABASE_FILENAME } from '../../services/googleDriveService';
-import { Cloud, Building2, Home, CheckCircle2, ShieldCheck, AlertCircle } from 'lucide-react';
+import firebaseConfig from '../../../firebase-applet-config.json';
+import {
+  Cloud,
+  Building2,
+  Home,
+  CheckCircle2,
+  ShieldCheck,
+  AlertCircle,
+  Copy,
+  ExternalLink,
+  Check,
+} from 'lucide-react';
 
 interface GoogleAuthStartupModalProps {
   isOpen: boolean;
@@ -24,10 +35,13 @@ export const GoogleAuthStartupModal: React.FC<GoogleAuthStartupModalProps> = ({
 }) => {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [unauthorizedDomain, setUnauthorizedDomain] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const handleSignIn = async () => {
     setLoading(true);
     setErrorMsg(null);
+    setUnauthorizedDomain(null);
     try {
       const { user, accessToken } = await googleSignIn();
       // Conecta ao Google Drive e baixa a base mais recente
@@ -35,16 +49,34 @@ export const GoogleAuthStartupModal: React.FC<GoogleAuthStartupModalProps> = ({
       onSyncComplete();
       onClose();
     } catch (err: any) {
-      console.error('Falha ao autenticar com Google Drive:', err);
-      setErrorMsg(
-        err?.message === 'Falha ao obter token de acesso do Google Drive.'
-          ? 'Autorização não concluída. Por favor, tente novamente.'
-          : err?.message || 'Erro ao conectar conta Google.'
-      );
+      if (err?.code === 'auth/unauthorized-domain' || err?.message?.includes('auth/unauthorized-domain') || err?.message?.includes('não está autorizado')) {
+        const host = typeof window !== 'undefined' ? window.location.hostname : '';
+        setUnauthorizedDomain(host);
+        setErrorMsg(
+          `O domínio "${host}" não está na lista de domínios autorizados do Firebase Authentication do projeto ${firebaseConfig.projectId}.`
+        );
+      } else {
+        console.error('Falha ao autenticar com Google Drive:', err);
+        setErrorMsg(
+          err?.message === 'Falha ao obter token de acesso do Google Drive.'
+            ? 'Autorização não concluída. Por favor, tente novamente.'
+            : err?.message || 'Erro ao conectar conta Google.'
+        );
+      }
     } finally {
       setLoading(false);
     }
   };
+
+  const handleCopyDomain = () => {
+    if (unauthorizedDomain) {
+      navigator.clipboard.writeText(unauthorizedDomain);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 3000);
+    }
+  };
+
+  const firebaseConsoleUrl = `https://console.firebase.google.com/project/${firebaseConfig.projectId}/authentication/settings`;
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Sincronização em Nuvem - Gráfica Marreco" maxWidth="md">
@@ -90,8 +122,54 @@ export const GoogleAuthStartupModal: React.FC<GoogleAuthStartupModalProps> = ({
           </p>
         </div>
 
-        {/* Mensagem de Erro se houver */}
-        {errorMsg && (
+        {/* Alerta detalhado se o domínio não estiver autorizado no Firebase */}
+        {unauthorizedDomain && (
+          <div className="p-4 rounded-xl text-xs bg-amber-50 border border-amber-200 text-amber-900 space-y-3">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold text-amber-900">
+                  Domínio não autorizado no Firebase Console
+                </p>
+                <p className="text-amber-800 mt-1">
+                  O Firebase Authentication exige que o domínio do aplicativo esteja na lista de domínios autorizados para habilitar login via popup Google.
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-white p-2.5 rounded-lg border border-amber-200 flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <span className="text-[10px] uppercase font-bold text-gray-500 block">Domínio a autorizar:</span>
+                <code className="text-xs font-mono font-bold text-gray-900 truncate block">
+                  {unauthorizedDomain}
+                </code>
+              </div>
+              <button
+                type="button"
+                onClick={handleCopyDomain}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold bg-gray-100 hover:bg-gray-200 text-gray-800 rounded border border-gray-300 shrink-0 cursor-pointer"
+              >
+                {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5 text-gray-600" />}
+                {copied ? 'Copiado!' : 'Copiar'}
+              </button>
+            </div>
+
+            <div className="flex items-center justify-between gap-2 pt-1 text-[11px]">
+              <a
+                href={firebaseConsoleUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-[#01B8AA] hover:text-[#009E91] font-bold underline"
+              >
+                <span>Abrir Firebase Console &gt; Authorized Domains</span>
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+            </div>
+          </div>
+        )}
+
+        {/* Outras mensagens de erro */}
+        {errorMsg && !unauthorizedDomain && (
           <div className="p-3 rounded-lg text-xs bg-rose-50 border border-rose-200 text-rose-800 flex items-center gap-2">
             <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
             <span>{errorMsg}</span>
@@ -111,9 +189,9 @@ export const GoogleAuthStartupModal: React.FC<GoogleAuthStartupModalProps> = ({
             type="button"
             disabled={loading}
             onClick={onClose}
-            className="w-full py-2 text-xs font-medium text-slate-500 hover:text-slate-700 transition-colors cursor-pointer"
+            className="w-full py-2.5 px-3 text-xs font-semibold text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer text-center"
           >
-            Continuar apenas com armazenamento local deste navegador
+            Continuar com armazenamento local (IndexedDB)
           </button>
         </div>
       </div>

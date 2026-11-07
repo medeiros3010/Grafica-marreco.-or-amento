@@ -28,8 +28,27 @@ export default function App() {
   const [tasks, setTasks] = useState<StandardTask[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [logs, setLogs] = useState<ProductionLog[]>([]);
-  const [selectedProductId, setSelectedProductId] = useState<string>('');
+  const [selectedProductId, setSelectedProductId] = useState<string>(() => {
+    return (typeof window !== 'undefined' ? sessionStorage.getItem('grafica_selected_product_id') : '') || '';
+  });
+  const selectedProductIdRef = React.useRef<string>(selectedProductId);
   const [loading, setLoading] = useState(true);
+
+  // Mantém a ref e a sessionStorage sincronizadas com o estado ativo
+  const handleSelectProduct = (productId: string) => {
+    setSelectedProductId(productId);
+    selectedProductIdRef.current = productId;
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('grafica_selected_product_id', productId);
+    }
+  };
+
+  React.useEffect(() => {
+    selectedProductIdRef.current = selectedProductId;
+    if (selectedProductId && typeof window !== 'undefined') {
+      sessionStorage.setItem('grafica_selected_product_id', selectedProductId);
+    }
+  }, [selectedProductId]);
 
   // Modais utilitários
   const [isBackupOpen, setIsBackupOpen] = useState(false);
@@ -60,9 +79,27 @@ export default function App() {
       setProducts(allProducts);
       setLogs(allLogs);
 
-      // Se nenhum produto estiver selecionado, seleciona o primeiro
-      if (!selectedProductId && allProducts.length > 0) {
-        setSelectedProductId(allProducts[0].id);
+      // PRESERVAÇÃO TOTAL DA SELEÇÃO DO USUÁRIO:
+      // Verifica se o ID selecionado atualmente ainda existe na lista de produtos.
+      // Se existir, mantém! Jamais reseta de forma forçada para o primeiro item.
+      const currentSelected =
+        selectedProductIdRef.current ||
+        (typeof window !== 'undefined' ? sessionStorage.getItem('grafica_selected_product_id') : '');
+
+      const productStillExists = allProducts.some((p) => p.id === currentSelected);
+
+      if (currentSelected && productStillExists) {
+        if (selectedProductIdRef.current !== currentSelected) {
+          setSelectedProductId(currentSelected);
+          selectedProductIdRef.current = currentSelected;
+        }
+      } else if (allProducts.length > 0) {
+        const firstId = allProducts[0].id;
+        setSelectedProductId(firstId);
+        selectedProductIdRef.current = firstId;
+        if (typeof window !== 'undefined') {
+          sessionStorage.setItem('grafica_selected_product_id', firstId);
+        }
       }
     } catch (e) {
       console.error('Erro ao carregar dados do IndexedDB:', e);
@@ -104,12 +141,12 @@ export default function App() {
   }, []);
 
   const handleGoToLogs = (productId: string) => {
-    setSelectedProductId(productId);
+    handleSelectProduct(productId);
     setActiveTab('logs');
   };
 
   const handleGoToAnalysis = (productId: string) => {
-    setSelectedProductId(productId);
+    handleSelectProduct(productId);
     setActiveTab('analysis');
   };
 
@@ -206,7 +243,7 @@ export default function App() {
                 products={products}
                 logs={logs}
                 selectedProductId={selectedProductId}
-                onSelectProduct={setSelectedProductId}
+                onSelectProduct={handleSelectProduct}
                 onRefresh={loadAllData}
                 onGoToAnalysis={handleGoToAnalysis}
               />
@@ -217,7 +254,7 @@ export default function App() {
                 products={products}
                 logs={logs}
                 selectedProductId={selectedProductId}
-                onSelectProduct={setSelectedProductId}
+                onSelectProduct={handleSelectProduct}
                 onGoToLogs={handleGoToLogs}
               />
             )}

@@ -19,11 +19,7 @@ const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 
 export const SCOPES = [
-  'https://www.googleapis.com/auth/drive',
   'https://www.googleapis.com/auth/drive.file',
-  'https://www.googleapis.com/auth/drive.appdata',
-  'https://www.googleapis.com/auth/drive.metadata',
-  'https://www.googleapis.com/auth/drive.readonly',
 ];
 
 // Provedor Google com os escopos configurados do Google Drive
@@ -88,6 +84,15 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
 
     return { user: result.user, accessToken: cachedAccessToken };
   } catch (error: any) {
+    if (error?.code === 'auth/unauthorized-domain') {
+      const currentHost = typeof window !== 'undefined' ? window.location.hostname : '';
+      const customErr = new Error(
+        `O domínio "${currentHost}" não está autorizado no Firebase Authentication deste projeto.`
+      );
+      (customErr as any).code = 'auth/unauthorized-domain';
+      (customErr as any).domain = currentHost;
+      throw customErr;
+    }
     console.error('Erro no login Google OAuth2:', error);
     throw error;
   } finally {

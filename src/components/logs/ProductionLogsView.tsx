@@ -100,8 +100,27 @@ export const ProductionLogsView: React.FC<ProductionLogsViewProps> = ({
   onSelectProduct,
   onGoToAnalysis,
 }) => {
-  // Lista de produtos orçados / disponíveis
-  const activeProductId = selectedProductId || products[0]?.id || '';
+  // Garante seleção estável e imune a resets:
+  // 1. Prop selecionado (se válido)
+  // 2. Cache em sessionStorage da última seleção do usuário
+  // 3. Primeiro produto da lista
+  const activeProductId = useMemo(() => {
+    const cachedId =
+      typeof window !== 'undefined' ? sessionStorage.getItem('grafica_selected_product_id') : null;
+    const targetId = selectedProductId || cachedId;
+    if (targetId && products.some((p) => p.id === targetId)) {
+      return targetId;
+    }
+    return products[0]?.id || '';
+  }, [selectedProductId, products]);
+
+  const handleSelectProductChange = (newId: string) => {
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('grafica_selected_product_id', newId);
+    }
+    onSelectProduct(newId);
+  };
+
   const currentProduct = products.find((p) => p.id === activeProductId);
 
   // Estados locais do preenchimento espelhado (Coluna da Direita: Realizado)
@@ -692,7 +711,7 @@ export const ProductionLogsView: React.FC<ProductionLogsViewProps> = ({
           <div className="flex items-center gap-2 max-w-xl">
             <select
               value={activeProductId}
-              onChange={(e) => onSelectProduct(e.target.value)}
+              onChange={(e) => handleSelectProductChange(e.target.value)}
               className="w-full px-3 py-2 text-sm font-semibold border border-gray-300 rounded-lg bg-white text-[#374151] focus:ring-2 focus:ring-[#01B8AA] focus:border-[#01B8AA] focus:outline-none"
             >
               {products.map((p) => (
@@ -985,15 +1004,17 @@ export const ProductionLogsView: React.FC<ProductionLogsViewProps> = ({
                                 type="number"
                                 step="any"
                                 min="0"
-                                value={mat.quantidadeReal}
+                                value={mat.quantidadeReal === 0 ? '' : mat.quantidadeReal}
                                 onChange={(e) => {
-                                  const val = parseFloat(e.target.value) || 0;
+                                  const raw = e.target.value;
+                                  const val = raw === '' ? 0 : parseFloat(raw);
                                   setMaterialsState((prev) =>
                                     prev.map((item, i) =>
-                                      i === idx ? { ...item, quantidadeReal: val } : item
+                                      i === idx ? { ...item, quantidadeReal: isNaN(val) ? 0 : val } : item
                                     )
                                   );
                                 }}
+                                placeholder="0"
                                 className="w-full text-xs font-bold font-mono text-gray-800 border border-gray-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#01B8AA] focus:border-[#01B8AA]"
                               />
                             </div>
@@ -1006,15 +1027,17 @@ export const ProductionLogsView: React.FC<ProductionLogsViewProps> = ({
                                 type="number"
                                 step="0.0001"
                                 min="0"
-                                value={mat.custoUnitarioReal}
+                                value={mat.custoUnitarioReal === 0 ? '' : mat.custoUnitarioReal}
                                 onChange={(e) => {
-                                  const val = parseFloat(e.target.value) || 0;
+                                  const raw = e.target.value;
+                                  const val = raw === '' ? 0 : parseFloat(raw);
                                   setMaterialsState((prev) =>
                                     prev.map((item, i) =>
-                                      i === idx ? { ...item, custoUnitarioReal: val } : item
+                                      i === idx ? { ...item, custoUnitarioReal: isNaN(val) ? 0 : val } : item
                                     )
                                   );
                                 }}
+                                placeholder="0,00"
                                 className="w-full text-xs font-bold font-mono text-gray-800 border border-gray-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#01B8AA] focus:border-[#01B8AA]"
                               />
                             </div>
@@ -1435,13 +1458,16 @@ export const ProductionLogsView: React.FC<ProductionLogsViewProps> = ({
                         type="number"
                         step="0.01"
                         min="0"
-                        value={extrasState.despesasAdicionaisReal}
-                        onChange={(e) =>
+                        value={extrasState.despesasAdicionaisReal === 0 ? '' : extrasState.despesasAdicionaisReal}
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          const val = raw === '' ? 0 : parseFloat(raw);
                           setExtrasState({
                             ...extrasState,
-                            despesasAdicionaisReal: parseFloat(e.target.value) || 0,
-                          })
-                        }
+                            despesasAdicionaisReal: isNaN(val) ? 0 : val,
+                          });
+                        }}
+                        placeholder="0.00"
                         className="w-full text-xs font-bold font-mono text-gray-800 border border-gray-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#01B8AA] focus:border-[#01B8AA]"
                       />
                     </div>
@@ -1454,13 +1480,16 @@ export const ProductionLogsView: React.FC<ProductionLogsViewProps> = ({
                         type="number"
                         step="0.01"
                         min="0"
-                        value={extrasState.transporteReal}
-                        onChange={(e) =>
+                        value={extrasState.transporteReal === 0 ? '' : extrasState.transporteReal}
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          const val = raw === '' ? 0 : parseFloat(raw);
                           setExtrasState({
                             ...extrasState,
-                            transporteReal: parseFloat(e.target.value) || 0,
-                          })
-                        }
+                            transporteReal: isNaN(val) ? 0 : val,
+                          });
+                        }}
+                        placeholder="0.00"
                         className="w-full text-xs font-bold font-mono text-gray-800 border border-gray-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#01B8AA] focus:border-[#01B8AA]"
                       />
                     </div>
