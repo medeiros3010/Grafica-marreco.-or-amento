@@ -11,7 +11,7 @@ import {
   ProductStatus,
   PRODUCT_STATUS_LABELS,
 } from '../../types';
-import { formatBRL, formatBRLUnit, getProductProcesses } from '../../services/calculator';
+import { formatBRL, formatBRLUnit, getProductProcesses, calculateProcessItemCost } from '../../services/calculator';
 import { ProductStatusBadge } from '../common/Badge';
 import { ProductFormModal } from './ProductFormModal';
 import { ProductDetailView } from './ProductDetailView';
@@ -93,9 +93,25 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
 
   const handleSaveProduct = async (productData: Partial<Product>) => {
     if (editingProduct) {
+      let updatedProcessos = editingProduct.processos;
+      if (
+        productData.quantity &&
+        productData.quantity !== editingProduct.quantity &&
+        updatedProcessos
+      ) {
+        updatedProcessos = updatedProcessos.map((p) => {
+          if (p.tipoCobranca === 'MILHEIRO' && p.quantidadeProducao === editingProduct.quantity) {
+            const upP = { ...p, quantidadeProducao: productData.quantity! };
+            return { ...upP, custoTotal: calculateProcessItemCost(upP) };
+          }
+          return p;
+        });
+      }
+
       await storage.saveProduct({
         ...editingProduct,
         ...productData,
+        processos: updatedProcessos,
       } as Product);
     } else {
       const newProduct: Product = {

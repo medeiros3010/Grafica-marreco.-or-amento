@@ -177,6 +177,58 @@ export const AddProcessModal: React.FC<AddProcessModalProps> = ({
     setError(null);
   }, [initialProcess, isOpen, productQuantity]);
 
+  // Handler ao alternar explicitamente para Custo por Milheiro
+  const handleSwitchToMilheiro = () => {
+    setTipoCobranca('MILHEIRO');
+    setError(null);
+    if (!quantidadeProducao || quantidadeProducao <= 0) {
+      setQuantidadeProducao(productQuantity > 0 ? productQuantity : 1000);
+    }
+    if (!custoMilheiro || custoMilheiro <= 0) {
+      if (tipoItem === 'MAQUINA' && origemId) {
+        const mach = machines.find((m) => m.id === origemId);
+        if (mach?.custoMilheiro && mach.custoMilheiro > 0) {
+          setCustoMilheiro(mach.custoMilheiro);
+          return;
+        }
+      } else if (tipoItem === 'TAREFA' && origemId) {
+        const task = standardTasks.find((t) => t.id === origemId);
+        if (task?.costPerThousand && task.costPerThousand > 0) {
+          setCustoMilheiro(task.costPerThousand);
+          return;
+        }
+      }
+      setCustoMilheiro(80);
+    }
+  };
+
+  // Handler ao alternar explicitamente para Custo por Hora
+  const handleSwitchToHora = () => {
+    setTipoCobranca('HORA');
+    setError(null);
+    if (tempoTotalHoras <= 0) {
+      setProdHoras(2);
+      setProdMinutos(0);
+    }
+    if (!custoHora || custoHora <= 0) {
+      if (tipoItem === 'MAQUINA' && origemId) {
+        const mach = machines.find((m) => m.id === origemId);
+        if (mach?.custoHora && mach.custoHora > 0) {
+          setCustoHora(mach.custoHora);
+          return;
+        }
+      } else if (tipoItem === 'TAREFA' && origemId) {
+        const task = standardTasks.find((t) => t.id === origemId);
+        const rate = (task?.hourlyMachineRate || 0) + (task?.hourlyLaborRate || 0);
+        if (rate > 0) {
+          setCustoHora(rate);
+          return;
+        }
+      }
+      setCustoHora(120);
+    }
+  };
+
   // Handler ao selecionar Máquina
   const handleSelectMachine = (machId: string) => {
     setOrigemId(machId);
@@ -190,6 +242,9 @@ export const AddProcessModal: React.FC<AddProcessModalProps> = ({
         setCustoHora(mach.custoHora || 120);
       } else {
         setCustoMilheiro(mach.custoMilheiro || 80);
+        if (!quantidadeProducao || quantidadeProducao <= 0) {
+          setQuantidadeProducao(productQuantity > 0 ? productQuantity : 1000);
+        }
       }
     }
   };
@@ -208,6 +263,9 @@ export const AddProcessModal: React.FC<AddProcessModalProps> = ({
         setCustoHora(rate > 0 ? rate : 120);
       } else {
         setCustoMilheiro(task.costPerThousand || 60);
+        if (!quantidadeProducao || quantidadeProducao <= 0) {
+          setQuantidadeProducao(productQuantity > 0 ? productQuantity : 1000);
+        }
       }
     }
   };
@@ -240,7 +298,7 @@ export const AddProcessModal: React.FC<AddProcessModalProps> = ({
     tempoExtraHoras,
     tempoPrevistoHoras: tempoTotalHoras,
     custoHora,
-    quantidadeProducao,
+    quantidadeProducao: quantidadeProducao > 0 ? quantidadeProducao : (productQuantity || 1000),
     custoMilheiro,
   });
 
@@ -249,6 +307,8 @@ export const AddProcessModal: React.FC<AddProcessModalProps> = ({
       setError('Informe ou selecione o nome do processo (máquina ou tarefa).');
       return;
     }
+
+    const finalQtdMilheiro = Number(quantidadeProducao) > 0 ? Number(quantidadeProducao) : (productQuantity > 0 ? productQuantity : 1000);
 
     if (tipoCobranca === 'HORA') {
       if (tempoTotalHoras <= 0) {
@@ -260,7 +320,8 @@ export const AddProcessModal: React.FC<AddProcessModalProps> = ({
         return;
       }
     } else {
-      if (quantidadeProducao <= 0) {
+      // Precificação por MILHEIRO: não exige preenchimento de horas nem custo/hora!
+      if (finalQtdMilheiro <= 0) {
         setError('A quantidade prevista deve ser maior que zero.');
         return;
       }
@@ -278,15 +339,15 @@ export const AddProcessModal: React.FC<AddProcessModalProps> = ({
       nome: nome.trim(),
       descricao: descricao.trim() || undefined,
       tipoCobranca,
-      // 3 tempos discriminados:
+      // 3 tempos discriminados (apenas se HORA):
       tempoProdutivoHoras: tipoCobranca === 'HORA' ? tempoProdutivoHoras : 0,
       tempoAcertoHoras: tipoCobranca === 'HORA' ? tempoAcertoHoras : 0,
       tempoExtraHoras: tipoCobranca === 'HORA' ? tempoExtraHoras : 0,
       // Tempo Total calculado automaticamente:
       tempoPrevistoHoras: tipoCobranca === 'HORA' ? tempoTotalHoras : 0,
-      custoHora: tipoCobranca === 'HORA' ? Number(custoHora) : 0,
-      quantidadeProducao: tipoCobranca === 'MILHEIRO' ? Number(quantidadeProducao) : 0,
-      custoMilheiro: tipoCobranca === 'MILHEIRO' ? Number(custoMilheiro) : 0,
+      custoHora: tipoCobranca === 'HORA' ? Number(custoHora) || 0 : 0,
+      quantidadeProducao: tipoCobranca === 'MILHEIRO' ? finalQtdMilheiro : 0,
+      custoMilheiro: tipoCobranca === 'MILHEIRO' ? Number(custoMilheiro) || 0 : 0,
       custoTotal: calculatedCost,
       tempoProdutivoRealHoras: initialProcess?.tempoProdutivoRealHoras,
       tempoAcertoRealHoras: initialProcess?.tempoAcertoRealHoras,
@@ -456,7 +517,7 @@ export const AddProcessModal: React.FC<AddProcessModalProps> = ({
           <div className="grid grid-cols-2 gap-3">
             <button
               type="button"
-              onClick={() => setTipoCobranca('HORA')}
+              onClick={handleSwitchToHora}
               className={`p-2.5 rounded-lg border text-left transition-all ${
                 tipoCobranca === 'HORA'
                   ? 'border-[#01B8AA] bg-[#01B8AA]/10 ring-1 ring-[#01B8AA] text-[#00897B] font-bold'
@@ -471,7 +532,7 @@ export const AddProcessModal: React.FC<AddProcessModalProps> = ({
 
             <button
               type="button"
-              onClick={() => setTipoCobranca('MILHEIRO')}
+              onClick={handleSwitchToMilheiro}
               className={`p-2.5 rounded-lg border text-left transition-all ${
                 tipoCobranca === 'MILHEIRO'
                   ? 'border-[#01B8AA] bg-[#01B8AA]/10 ring-1 ring-[#01B8AA] text-[#00897B] font-bold'
