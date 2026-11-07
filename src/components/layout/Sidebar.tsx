@@ -75,12 +75,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const catalogNavItems: { id: ActiveTab; label: string; icon: React.ReactNode; badge?: number }[] = [
     {
       id: 'machines-tasks',
-      label: 'Máquinas & Tarefas',
+      label: 'Máquinas & Equipamentos',
       icon: <Cpu className="w-4 h-4" />,
-      badge:
-        counts?.machines !== undefined && counts?.tasks !== undefined
-          ? counts.machines + counts.tasks
-          : undefined,
+      badge: counts?.machines,
     },
     {
       id: 'materials',

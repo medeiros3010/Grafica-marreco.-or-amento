@@ -237,7 +237,6 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
         </div>
 
         <div className="flex items-center gap-2.5 shrink-0">
-          <ProductStatusBadge status={currentProduct.status} />
           <button
             onClick={() => onGoToLogs(currentProduct.id)}
             className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors border border-gray-200"
@@ -500,86 +499,227 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
               </div>
             </div>
 
-            {/* Grid Comparativo dos 4 Indicadores de Volume e Custo Unitário */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 pt-4">
+            {/* Linha 1: Volume de Produção (Orçado x Entregue) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4">
               {/* Quantidade Orçada */}
-              <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-xs">
-                <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider block">
-                  Quantidade Orçada
-                </span>
-                <span className="text-xl font-bold text-gray-800 font-mono block mt-1">
-                  {summary.plannedQuantity.toLocaleString('pt-BR')} {currentProduct.productionUnit}
-                </span>
-                <span className="text-[11px] text-gray-500">Volume acordado na proposta</span>
+              <div className="bg-white p-3.5 rounded-xl border border-gray-200 shadow-xs flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">
+                    Quantidade Orçada (Proposta)
+                  </span>
+                  <span className="text-lg font-bold text-gray-800 font-mono block mt-0.5">
+                    {summary.plannedQuantity.toLocaleString('pt-BR')} {currentProduct.productionUnit}
+                  </span>
+                  <span className="text-[10px] text-gray-500">Tiragem contratual fechada com o cliente</span>
+                </div>
+                <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center text-slate-500 shrink-0">
+                  <Package className="w-4 h-4" />
+                </div>
               </div>
 
-              {/* Quantidade Entregue */}
+              {/* Quantidade Realmente Entregue */}
               <div
-                className={`p-4 rounded-xl border shadow-xs ${
+                className={`p-3.5 rounded-xl border shadow-xs flex items-center justify-between ${
                   summary.quantityVariance !== 0
-                    ? 'bg-teal-50/60 border-teal-200'
+                    ? 'bg-teal-50/70 border-teal-200'
                     : 'bg-white border-gray-200'
                 }`}
               >
-                <span className="text-[11px] font-bold text-[#00897B] uppercase tracking-wider block">
-                  Quantidade Realmente Entregue
-                </span>
-                <span className="text-xl font-black text-gray-900 font-mono block mt-1">
-                  {summary.deliveredQuantity.toLocaleString('pt-BR')} {currentProduct.productionUnit}
-                </span>
-                <span className="text-[11px] font-semibold text-teal-800 font-mono">
-                  Diferença: {summary.quantityVariance > 0 ? `+${summary.quantityVariance.toLocaleString('pt-BR')}` : summary.quantityVariance.toLocaleString('pt-BR')} un
-                </span>
+                <div>
+                  <span className="text-[10px] font-bold text-[#00897B] uppercase tracking-wider block">
+                    Quantidade Realmente Entregue
+                  </span>
+                  <span className="text-lg font-black text-gray-900 font-mono block mt-0.5">
+                    {summary.deliveredQuantity.toLocaleString('pt-BR')} {currentProduct.productionUnit}
+                  </span>
+                  <span className="text-[10px] font-semibold text-teal-800 font-mono">
+                    Variação: {summary.quantityVariance > 0 ? `+${summary.quantityVariance.toLocaleString('pt-BR')}` : summary.quantityVariance.toLocaleString('pt-BR')} un ({summary.quantityVariancePercent !== null && summary.quantityVariancePercent > 0 ? '+' : ''}{summary.quantityVariancePercent?.toFixed(2)}%)
+                  </span>
+                </div>
+                <div className="w-9 h-9 rounded-lg bg-teal-100/80 flex items-center justify-center text-teal-700 shrink-0">
+                  <CheckCircle className="w-4 h-4" />
+                </div>
+              </div>
+            </div>
+
+            {/* Linha 2: As DUAS Visões Claras de Custo Unitário (Sem Impostos vs Com Impostos) */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-3">
+              {/* VISÃO 1: Custo Unitário Direto de Produção (Sem Impostos / Bloco A) */}
+              <div className="bg-white p-4 rounded-xl border-2 border-teal-200/80 shadow-xs space-y-3">
+                <div className="flex items-center justify-between border-b border-gray-100 pb-2.5">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-[#00897B]"></span>
+                    <div>
+                      <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wide">
+                        1. Custo Unitário Direto de Produção
+                      </h4>
+                      <span className="text-[10px] font-semibold text-[#00897B] font-mono">
+                        (Sem Impostos / Bloco A = Custo Total Bloco A / Tiragem)
+                      </span>
+                    </div>
+                  </div>
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-teal-50 text-teal-800 border border-teal-200">
+                    Chão de Fábrica
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 pt-1">
+                  {/* Orçado Direto */}
+                  <div className="bg-slate-50 p-3 rounded-lg border border-slate-200/70">
+                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block">
+                      Orçado Direto
+                    </span>
+                    <span className="text-xl font-bold text-gray-800 font-mono block mt-1">
+                      {formatBRLUnit(summary.plannedUnitCostDirect)}
+                    </span>
+                    <span className="text-[10px] text-gray-500 block mt-0.5 truncate" title={`Bloco A: ${formatBRL(summary.plannedTotalCost)} / ${summary.plannedQuantity.toLocaleString('pt-BR')} un`}>
+                      Bloco A ({formatBRL(summary.plannedTotalCost)}) / {summary.plannedQuantity.toLocaleString('pt-BR')} un
+                    </span>
+                  </div>
+
+                  {/* Realizado Direto */}
+                  <div
+                    className={`p-3 rounded-lg border ${
+                      summary.unitCostDirectVariance > 0
+                        ? 'bg-red-50/70 border-red-200'
+                        : summary.unitCostDirectVariance < 0
+                        ? 'bg-emerald-50/70 border-emerald-200'
+                        : 'bg-slate-50 border-slate-200'
+                    }`}
+                  >
+                    <span
+                      className={`text-[10px] font-bold uppercase tracking-wider block ${
+                        summary.unitCostDirectVariance > 0
+                          ? 'text-red-700'
+                          : summary.unitCostDirectVariance < 0
+                          ? 'text-emerald-800'
+                          : 'text-gray-500'
+                      }`}
+                    >
+                      Realizado Direto
+                    </span>
+                    <span
+                      className={`text-xl font-black font-mono block mt-1 ${
+                        summary.unitCostDirectVariance > 0
+                          ? 'text-[#EF4444]'
+                          : summary.unitCostDirectVariance < 0
+                          ? 'text-[#10B981]'
+                          : 'text-gray-900'
+                      }`}
+                    >
+                      {summary.actualUnitCostDirect ? formatBRLUnit(summary.actualUnitCostDirect) : 'Pendente'}
+                    </span>
+                    <span className="text-[10px] text-gray-600 block mt-0.5 truncate" title={`Bloco A Real: ${formatBRL(summary.actualTotalCost)} / ${summary.deliveredQuantity.toLocaleString('pt-BR')} un`}>
+                      Bloco A Real ({formatBRL(summary.actualTotalCost)}) / {summary.deliveredQuantity.toLocaleString('pt-BR')} un
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between pt-1 text-[11px] font-mono border-t border-gray-100">
+                  <span className="text-gray-500 font-medium">Variação Unitária Direta:</span>
+                  <span
+                    className={`font-bold ${
+                      summary.unitCostDirectVariance > 0
+                        ? 'text-[#EF4444]'
+                        : summary.unitCostDirectVariance < 0
+                        ? 'text-[#10B981]'
+                        : 'text-gray-700'
+                    }`}
+                  >
+                    {summary.unitCostDirectVariance > 0 ? `+${formatBRLUnit(summary.unitCostDirectVariance)}` : formatBRLUnit(summary.unitCostDirectVariance)}{' '}
+                    ({summary.unitCostDirectVariancePercent !== null && summary.unitCostDirectVariancePercent > 0 ? '+' : ''}
+                    {summary.unitCostDirectVariancePercent !== null ? summary.unitCostDirectVariancePercent.toFixed(2) : '0.00'}%)
+                  </span>
+                </div>
               </div>
 
-              {/* Custo Unitário Orçado */}
-              <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-xs">
-                <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider block">
-                  Custo Unitário Orçado
-                </span>
-                <span className="text-xl font-bold text-gray-800 font-mono block mt-1">
-                  {formatBRLUnit(summary.plannedUnitCost)}
-                </span>
-                <span className="text-[11px] text-gray-400">
-                  Custo Total ({formatBRL(summary.plannedTotalCost)}) / {summary.plannedQuantity.toLocaleString('pt-BR')} un
-                </span>
-              </div>
+              {/* VISÃO 2: Custo Unitário Comercial / Total (Com Impostos e Encargos / Valor Final) */}
+              <div className="bg-white p-4 rounded-xl border-2 border-indigo-200/80 shadow-xs space-y-3">
+                <div className="flex items-center justify-between border-b border-gray-100 pb-2.5">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-indigo-600"></span>
+                    <div>
+                      <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wide">
+                        2. Custo / Preço Comercial Total
+                      </h4>
+                      <span className="text-[10px] font-semibold text-indigo-700 font-mono">
+                        (Com Impostos e Encargos = Valor Final da Venda / Tiragem)
+                      </span>
+                    </div>
+                  </div>
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-800 border border-indigo-200">
+                    Comercial & Tributos
+                  </span>
+                </div>
 
-              {/* Custo Unitário Realizado */}
-              <div
-                className={`p-4 rounded-xl border shadow-xs ${
-                  summary.unitCostVariance > 0
-                    ? 'bg-red-50/60 border-red-200'
-                    : summary.unitCostVariance < 0
-                    ? 'bg-emerald-50/60 border-emerald-200'
-                    : 'bg-white border-gray-200'
-                }`}
-              >
-                <span
-                  className={`text-[11px] font-bold uppercase tracking-wider block ${
-                    summary.unitCostVariance > 0
-                      ? 'text-red-700'
-                      : summary.unitCostVariance < 0
-                      ? 'text-emerald-800'
-                      : 'text-gray-500'
-                  }`}
-                >
-                  Custo Unitário Realizado
-                </span>
-                <span
-                  className={`text-xl font-black font-mono block mt-1 ${
-                    summary.unitCostVariance > 0
-                      ? 'text-[#EF4444]'
-                      : summary.unitCostVariance < 0
-                      ? 'text-[#10B981]'
-                      : 'text-gray-900'
-                  }`}
-                >
-                  {summary.actualUnitCost ? formatBRLUnit(summary.actualUnitCost) : 'Pendente'}
-                </span>
-                <span className="text-[11px] font-semibold text-gray-600 block">
-                  Custo Real ({formatBRL(summary.actualTotalCost)}) / {summary.deliveredQuantity.toLocaleString('pt-BR')} un
-                </span>
+                <div className="grid grid-cols-2 gap-3 pt-1">
+                  {/* Orçado Comercial */}
+                  <div className="bg-slate-50 p-3 rounded-lg border border-slate-200/70">
+                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block">
+                      Orçado Comercial
+                    </span>
+                    <span className="text-xl font-bold text-gray-800 font-mono block mt-1">
+                      {formatBRLUnit(summary.plannedUnitCostCommercial)}
+                    </span>
+                    <span className="text-[10px] text-gray-500 block mt-0.5 truncate" title={`Total Proposta: ${formatBRL(summary.finalTotal)} / ${summary.plannedQuantity.toLocaleString('pt-BR')} un`}>
+                      Total Proposta ({formatBRL(summary.finalTotal)}) / {summary.plannedQuantity.toLocaleString('pt-BR')} un
+                    </span>
+                  </div>
+
+                  {/* Realizado Comercial */}
+                  <div
+                    className={`p-3 rounded-lg border ${
+                      summary.unitCostCommercialVariance > 0
+                        ? 'bg-amber-50/70 border-amber-200'
+                        : summary.unitCostCommercialVariance < 0
+                        ? 'bg-emerald-50/70 border-emerald-200'
+                        : 'bg-slate-50 border-slate-200'
+                    }`}
+                  >
+                    <span
+                      className={`text-[10px] font-bold uppercase tracking-wider block ${
+                        summary.unitCostCommercialVariance > 0
+                          ? 'text-amber-800'
+                          : summary.unitCostCommercialVariance < 0
+                          ? 'text-emerald-800'
+                          : 'text-gray-500'
+                      }`}
+                    >
+                      Realizado Comercial
+                    </span>
+                    <span
+                      className={`text-xl font-black font-mono block mt-1 ${
+                        summary.unitCostCommercialVariance > 0
+                          ? 'text-amber-800'
+                          : summary.unitCostCommercialVariance < 0
+                          ? 'text-[#10B981]'
+                          : 'text-gray-900'
+                      }`}
+                    >
+                      {summary.actualUnitCostCommercial ? formatBRLUnit(summary.actualUnitCostCommercial) : 'Pendente'}
+                    </span>
+                    <span className="text-[10px] text-gray-600 block mt-0.5 truncate" title={`Custo Real + Tributos: ${formatBRL(summary.actualTotalWithTaxes)} / ${summary.deliveredQuantity.toLocaleString('pt-BR')} un`}>
+                      Custo Real + Tributos ({formatBRL(summary.actualTotalWithTaxes)}) / {summary.deliveredQuantity.toLocaleString('pt-BR')} un
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between pt-1 text-[11px] font-mono border-t border-gray-100">
+                  <span className="text-gray-500 font-medium">Variação Unitária Comercial:</span>
+                  <span
+                    className={`font-bold ${
+                      summary.unitCostCommercialVariance > 0
+                        ? 'text-amber-800'
+                        : summary.unitCostCommercialVariance < 0
+                        ? 'text-[#10B981]'
+                        : 'text-gray-700'
+                    }`}
+                  >
+                    {summary.unitCostCommercialVariance > 0 ? `+${formatBRLUnit(summary.unitCostCommercialVariance)}` : formatBRLUnit(summary.unitCostCommercialVariance)}{' '}
+                    ({summary.unitCostCommercialVariancePercent !== null && summary.unitCostCommercialVariancePercent > 0 ? '+' : ''}
+                    {summary.unitCostCommercialVariancePercent !== null ? summary.unitCostCommercialVariancePercent.toFixed(2) : '0.00'}%)
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -613,132 +753,120 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
             </div>
           </div>
 
-          {/* Cartões de Indicadores Chave de Desvio */}
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
-            {/* 1. Custo Orçado x Realizado */}
-            <div className="p-4 bg-white border border-gray-200 rounded-xl shadow-xs">
-              <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider block">
-                Custo Orçado Total
-              </span>
-              <span className="text-xl font-bold text-[#374151] font-mono block mt-1">
-                {formatBRL(summary.plannedTotalCost)}
-              </span>
-              <span className="text-[11px] text-gray-400">Previsto em orçamento</span>
-            </div>
-
-            <div className="p-4 bg-white border border-gray-200 rounded-xl shadow-xs">
-              <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider block">
-                Custo Realizado Total
-              </span>
-              <span className="text-xl font-bold text-[#374151] font-mono block mt-1">
-                {formatBRL(summary.actualTotalCost)}
-              </span>
-              <span className="text-[11px] text-gray-500">
-                {summary.pendingOperations > 0
-                  ? `${summary.pendingOperations} etapa(s) pendente(s)`
-                  : 'Todas etapas apontadas'}
-              </span>
-            </div>
-
-            {/* 2. Saldo Líquido de Desvio */}
-            <div
-              className={`p-4 rounded-xl border shadow-xs ${
-                summary.financialDifference > 0
-                  ? 'bg-red-50/70 border-red-200'
-                  : summary.financialDifference < 0
-                  ? 'bg-emerald-50/70 border-emerald-200'
-                  : 'bg-gray-50 border-gray-200'
-              }`}
-            >
-              <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider">
-                <span className={summary.financialDifference > 0 ? 'text-red-900' : 'text-emerald-900'}>
-                  Saldo de Desvio
+          {/* ========================================================================= */}
+          {/* LINHA 1: INDICADORES GERAIS (LINHA HORIZONTAL COMPLETA DEDICADA) */}
+          {/* ========================================================================= */}
+          <div>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1.5">
+              Linha 1 · Indicadores Gerais de Custo
+            </span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+              {/* 1. Custo Orçado Total */}
+              <div className="p-4 bg-white border border-gray-200 rounded-xl shadow-xs">
+                <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider block">
+                  Custo Orçado Total
                 </span>
-                {summary.financialDifference > 0 ? (
-                  <TrendingUp className="w-4 h-4 text-[#EF4444]" />
-                ) : (
-                  <TrendingDown className="w-4 h-4 text-[#10B981]" />
-                )}
+                <span className="text-xl font-bold text-[#374151] font-mono block mt-1">
+                  {formatBRL(summary.plannedTotalCost)}
+                </span>
+                <span className="text-[11px] text-gray-400">Previsto em orçamento</span>
               </div>
-              <span
-                className={`text-xl font-bold font-mono block mt-1 ${
+
+              {/* 2. Custo Realizado Total */}
+              <div className="p-4 bg-white border border-gray-200 rounded-xl shadow-xs">
+                <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider block">
+                  Custo Realizado Total
+                </span>
+                <span className="text-xl font-bold text-[#374151] font-mono block mt-1">
+                  {formatBRL(summary.actualTotalCost)}
+                </span>
+                <span className="text-[11px] text-gray-500">
+                  {summary.pendingOperations > 0
+                    ? `${summary.pendingOperations} etapa(s) pendente(s)`
+                    : 'Todas etapas apontadas'}
+                </span>
+              </div>
+
+              {/* 3. Saldo de Desvio */}
+              <div
+                className={`p-4 rounded-xl border shadow-xs ${
                   summary.financialDifference > 0
-                    ? 'text-[#EF4444]'
+                    ? 'bg-red-50/70 border-red-200'
                     : summary.financialDifference < 0
-                    ? 'text-[#10B981]'
-                    : 'text-gray-900'
+                    ? 'bg-emerald-50/70 border-emerald-200'
+                    : 'bg-gray-50 border-gray-200'
                 }`}
               >
-                {summary.financialDifference > 0
-                  ? `+${formatBRL(summary.financialDifference)}`
-                  : formatBRL(summary.financialDifference)}
-              </span>
-              <span
-                className={`text-[11px] font-semibold font-mono ${
-                  summary.financialDifference > 0 ? 'text-red-700' : 'text-emerald-700'
-                }`}
-              >
-                {formatPercent(summary.financialVariancePercent)}
-              </span>
-            </div>
-
-            {/* 3. Desvios Positivos e Economias Separados */}
-            <div className="p-4 bg-white border border-gray-200 rounded-xl shadow-xs">
-              <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider block">
-                Excedentes e Economias
-              </span>
-              <div className="mt-1 space-y-0.5 text-xs">
-                <div className="text-red-700 font-semibold font-mono">
-                  Excedente: +{formatBRL(summary.totalCostOverruns)}
+                <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider">
+                  <span className={summary.financialDifference > 0 ? 'text-red-900' : 'text-emerald-900'}>
+                    Saldo de Desvio
+                  </span>
+                  {summary.financialDifference > 0 ? (
+                    <TrendingUp className="w-4 h-4 text-[#EF4444]" />
+                  ) : (
+                    <TrendingDown className="w-4 h-4 text-[#10B981]" />
+                  )}
                 </div>
-                <div className="text-emerald-700 font-semibold font-mono">
-                  Economia: -{formatBRL(summary.totalCostSavings)}
-                </div>
-              </div>
-              <span className="text-[10px] text-gray-400 block mt-1">Valores brutos separados</span>
-            </div>
-
-            {/* 4. Tempo Previsto x Realizado */}
-            <div className="p-4 bg-white border border-gray-200 rounded-xl shadow-xs">
-              <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider block">
-                Tempo Total
-              </span>
-              <span className="text-xl font-bold text-[#374151] font-mono block mt-1">
-                {formatSecondsToTime(summary.actualTotalSeconds)}
-              </span>
-              <div className="text-[11px] text-gray-500 font-mono">
-                Prev: {formatSecondsToTime(summary.plannedTotalSeconds)}
                 <span
-                  className={`ml-1 font-semibold ${
-                    summary.timeDifferenceSeconds > 0 ? 'text-red-700' : 'text-emerald-700'
+                  className={`text-xl font-bold font-mono block mt-1 ${
+                    summary.financialDifference > 0
+                      ? 'text-[#EF4444]'
+                      : summary.financialDifference < 0
+                      ? 'text-[#10B981]'
+                      : 'text-gray-900'
                   }`}
                 >
-                  ({formatPercent(summary.timeVariancePercent)})
+                  {summary.financialDifference > 0
+                    ? `+${formatBRL(summary.financialDifference)}`
+                    : formatBRL(summary.financialDifference)}
                 </span>
-              </div>
-            </div>
-
-            {/* 5. Custo por Unidade Entregue */}
-            <div className="p-4 bg-slate-900 text-white rounded-xl shadow-xs">
-              <div className="flex items-center justify-between text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
-                <span>Custo Unitário Real</span>
-                <span className="text-[10px] text-teal-300 font-mono">
-                  {summary.deliveredQuantity.toLocaleString('pt-BR')} un
-                </span>
-              </div>
-              <span className="text-xl font-bold text-white font-mono block mt-1">
-                {summary.actualUnitCost ? formatBRLUnit(summary.actualUnitCost) : 'Pendente'}
-              </span>
-              <div className="flex items-center justify-between text-[10px] text-gray-400 font-mono mt-0.5">
-                <span>Orçado: {formatBRLUnit(summary.plannedUnitCost)}</span>
                 <span
-                  className={`font-bold ${
-                    summary.unitCostVariance > 0 ? 'text-red-400' : 'text-emerald-400'
+                  className={`text-[11px] font-semibold font-mono ${
+                    summary.financialDifference > 0 ? 'text-red-700' : 'text-emerald-700'
                   }`}
                 >
-                  {summary.unitCostVariance > 0 ? '+' : ''}
-                  {summary.unitCostVariancePercent?.toFixed(1)}%
+                  {formatPercent(summary.financialVariancePercent)}
                 </span>
+              </div>
+
+              {/* 4. Excedentes e Economias */}
+              <div className="p-4 bg-white border border-gray-200 rounded-xl shadow-xs">
+                <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider block">
+                  Excedentes e Economias
+                </span>
+                <div className="mt-1 space-y-0.5 text-xs">
+                  <div className="text-red-700 font-semibold font-mono">
+                    Excedente: +{formatBRL(summary.totalCostOverruns)}
+                  </div>
+                  <div className="text-emerald-700 font-semibold font-mono">
+                    Economia: -{formatBRL(summary.totalCostSavings)}
+                  </div>
+                </div>
+                <span className="text-[10px] text-gray-400 block mt-1">Valores brutos separados</span>
+              </div>
+
+              {/* 5. Custo Unitário */}
+              <div className="p-4 bg-slate-900 text-white rounded-xl shadow-xs">
+                <div className="flex items-center justify-between text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                  <span>Custo Unitário</span>
+                  <span className="text-[10px] text-teal-300 font-mono">
+                    {summary.deliveredQuantity.toLocaleString('pt-BR')} un
+                  </span>
+                </div>
+                <span className="text-xl font-bold text-white font-mono block mt-1">
+                  {summary.actualUnitCost ? formatBRLUnit(summary.actualUnitCost) : 'Pendente'}
+                </span>
+                <div className="flex items-center justify-between text-[10px] text-gray-400 font-mono mt-0.5">
+                  <span>Orçado: {formatBRLUnit(summary.plannedUnitCost)}</span>
+                  <span
+                    className={`font-bold ${
+                      summary.unitCostVariance > 0 ? 'text-red-400' : 'text-emerald-400'
+                    }`}
+                  >
+                    {summary.unitCostVariance > 0 ? '+' : ''}
+                    {summary.unitCostVariancePercent?.toFixed(1)}%
+                  </span>
+                </div>
               </div>
             </div>
           </div>
@@ -768,27 +896,34 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
                   <thead className="bg-gray-50 border-b border-gray-200 text-gray-500 font-semibold uppercase tracking-wider text-[11px]">
                     <tr>
                       <th className="py-2.5 px-4">Insumo</th>
-                      <th className="py-2.5 px-4 text-center">Unidade</th>
                       <th className="py-2.5 px-4 text-right">Qtd. Orçada</th>
                       <th className="py-2.5 px-4 text-right">Qtd. Real Consumida</th>
-                      <th className="py-2.5 px-4 text-right">Custo Unit. (R$)</th>
-                      <th className="py-2.5 px-4 text-right">Custo Orçado</th>
-                      <th className="py-2.5 px-4 text-right">Custo Real</th>
+                      <th className="py-2.5 px-4 text-right">Custo Unit. Orçado (R$)</th>
+                      <th className="py-2.5 px-4 text-right">Custo Unitário Realizado (R$)</th>
+                      <th className="py-2.5 px-4 text-right">Custo Orçado (R$)</th>
+                      <th className="py-2.5 px-4 text-right">Custo Real (R$)</th>
                       <th className="py-2.5 px-4 text-right">Desvio (R$)</th>
                       <th className="py-2.5 px-4 text-center w-28">Ação</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {summary.materials.map((mat) => {
+                    {summary.materials.map((mat, mIdx) => {
                       const realQty = mat.quantidadeReal !== undefined ? mat.quantidadeReal : mat.quantidade;
-                      const realUnitCost = mat.custoUnitarioReal !== undefined ? mat.custoUnitarioReal : mat.custoUnitario;
-                      const realTotal = mat.totalCustoReal !== undefined ? mat.totalCustoReal : (realQty * realUnitCost);
+                      const realUnitCost =
+                        mat.custoUnitarioReal !== undefined
+                          ? mat.custoUnitarioReal
+                          : (realQty > 0 && mat.totalCustoReal !== undefined
+                              ? (mat.totalCustoReal / realQty)
+                              : mat.custoUnitario);
+                      const realTotal =
+                        mat.totalCustoReal !== undefined
+                          ? mat.totalCustoReal
+                          : (realQty * realUnitCost);
                       const diff = Number((realTotal - mat.totalCusto).toFixed(2));
 
                       return (
-                        <tr key={mat.id} className="hover:bg-teal-50/20 even:bg-slate-50/40 transition-colors">
+                        <tr key={`comp_mat_${mat.id || mIdx}_${mIdx}`} className="hover:bg-teal-50/20 even:bg-slate-50/40 transition-colors">
                           <td className="py-2.5 px-4 font-semibold text-gray-800">{mat.nome}</td>
-                          <td className="py-2.5 px-4 text-center font-mono text-gray-500">{mat.unidade}</td>
                           <td className="py-2.5 px-4 text-right font-mono text-gray-700">
                             {mat.quantidade.toLocaleString('pt-BR')}
                           </td>
@@ -796,6 +931,9 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
                             {realQty.toLocaleString('pt-BR')}
                           </td>
                           <td className="py-2.5 px-4 text-right font-mono text-gray-600">
+                            {formatBRLUnit(mat.custoUnitario)}
+                          </td>
+                          <td className="py-2.5 px-4 text-right font-mono font-bold text-teal-700">
                             {formatBRLUnit(realUnitCost)}
                           </td>
                           <td className="py-2.5 px-4 text-right font-mono font-medium text-gray-700">
@@ -839,11 +977,11 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
                 <div className="flex items-center gap-2">
                   <Cpu className="w-4 h-4 text-[#01B8AA]" />
                   <h3 className="text-sm font-bold text-[#374151]">
-                    Máquinas & Tarefas Produtivas (Orçado x Realizado)
+                    Máquinas & Equipamentos (Orçado x Realizado)
                   </h3>
                 </div>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  Análise comparativa detalhada de custos por hora e milheiro executados no chão de fábrica.
+                  Análise comparativa detalhada de custos por hora e milheiro executados no parque fabril.
                 </p>
               </div>
 
@@ -889,7 +1027,7 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
 
                       return (
                         <tr
-                          key={proc.id || `proc_comp_${pIdx}`}
+                          key={`comp_proc_${proc.id || pIdx}_${pIdx}`}
                           className="hover:bg-teal-50/20 even:bg-slate-50/40 transition-colors"
                         >
                           {/* Ordem */}

@@ -583,6 +583,21 @@ export interface ProductComparisonSummary {
   unitCostVariance: number; // actualUnitCost - plannedUnitCost
   unitCostVariancePercent: number | null;
 
+  // Visão 1: Custo Unitário Direto de Produção (Sem Impostos - Bloco A)
+  plannedUnitCostDirect: number; // (Custo Total Bloco A Orçado / Tiragem Orçada)
+  actualUnitCostDirect: number | null; // (Custo Total Bloco A Real / Tiragem Entregue)
+  unitCostDirectVariance: number;
+  unitCostDirectVariancePercent: number | null;
+
+  // Visão 2: Custo Unitário Comercial / Total (Com Impostos e Encargos - Bloco Final)
+  plannedUnitCostCommercial: number; // (Valor Final da Venda com Tributos e Encargos / Tiragem Orçada)
+  actualUnitCostCommercial: number | null; // (Custo Total Real + Tributos e Encargos / Tiragem Entregue)
+  unitCostCommercialVariance: number;
+  unitCostCommercialVariancePercent: number | null;
+
+  fixedTaxesAndCharges: number; // Impostos, Comissões, Juros, IPI, ST e Despesas
+  actualTotalWithTaxes: number; // Custo Total Real Bloco A + fixedTaxesAndCharges
+
   // Análise de Variação de Produção (Diluição / Concentração de Custos e Reflexo na Margem)
   productionVolumeAnalysis: {
     tipo: 'EXCEDENTE' | 'DEFASAGEM' | 'EXATO';

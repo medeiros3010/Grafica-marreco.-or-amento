@@ -11,6 +11,7 @@ import {
   INITIAL_MACHINES,
   INITIAL_RAW_MATERIALS,
 } from './seedData';
+import { sanitizeProcesses, sanitizeMaterials } from './calculator';
 
 import { googleDriveService, DRIVE_DATABASE_FILENAME, DriveFileInfo } from './googleDriveService';
 import { getCachedAccessToken, googleSignOut } from './googleAuth';
@@ -441,9 +442,25 @@ class StorageService {
     }
     if (Array.isArray(snapshot.products)) {
       for (const p of snapshot.products) {
-        this.memProducts.set(p.id, p);
-        if (p.actualRecord) {
-          this.memActualRecords.set(p.actualRecord.id, p.actualRecord);
+        const cleanProduct: Product = {
+          ...p,
+          processos: p.processos ? sanitizeProcesses(p.processos) : p.processos,
+          materials: p.materials ? sanitizeMaterials(p.materials) : p.materials,
+        };
+        if (cleanProduct.activeRevision) {
+          cleanProduct.activeRevision = {
+            ...cleanProduct.activeRevision,
+            processos: cleanProduct.activeRevision.processos
+              ? sanitizeProcesses(cleanProduct.activeRevision.processos)
+              : cleanProduct.activeRevision.processos,
+            materials: cleanProduct.activeRevision.materials
+              ? sanitizeMaterials(cleanProduct.activeRevision.materials)
+              : cleanProduct.activeRevision.materials,
+          };
+        }
+        this.memProducts.set(cleanProduct.id, cleanProduct);
+        if (cleanProduct.actualRecord) {
+          this.memActualRecords.set(cleanProduct.actualRecord.id, cleanProduct.actualRecord);
         }
       }
     }
@@ -961,26 +978,75 @@ class StorageService {
 
   async getAllProducts(): Promise<Product[]> {
     await this.ensureInitialized();
-    return Array.from(this.memProducts.values());
+    return Array.from(this.memProducts.values()).map((p) => ({
+      ...p,
+      processos: p.processos ? sanitizeProcesses(p.processos) : p.processos,
+      materials: p.materials ? sanitizeMaterials(p.materials) : p.materials,
+      ...(p.activeRevision
+        ? {
+            activeRevision: {
+              ...p.activeRevision,
+              processos: p.activeRevision.processos
+                ? sanitizeProcesses(p.activeRevision.processos)
+                : p.activeRevision.processos,
+              materials: p.activeRevision.materials
+                ? sanitizeMaterials(p.activeRevision.materials)
+                : p.activeRevision.materials,
+            },
+          }
+        : {}),
+    }));
   }
 
   async getProductById(id: string): Promise<Product | null> {
     await this.ensureInitialized();
-    return this.memProducts.get(id) || null;
+    const p = this.memProducts.get(id);
+    if (!p) return null;
+    return {
+      ...p,
+      processos: p.processos ? sanitizeProcesses(p.processos) : p.processos,
+      materials: p.materials ? sanitizeMaterials(p.materials) : p.materials,
+      ...(p.activeRevision
+        ? {
+            activeRevision: {
+              ...p.activeRevision,
+              processos: p.activeRevision.processos
+                ? sanitizeProcesses(p.activeRevision.processos)
+                : p.activeRevision.processos,
+              materials: p.activeRevision.materials
+                ? sanitizeMaterials(p.activeRevision.materials)
+                : p.activeRevision.materials,
+            },
+          }
+        : {}),
+    };
   }
 
   async saveProduct(product: Product): Promise<void> {
     await this.ensureInitialized();
-    const updated: Product = {
+    const cleanProduct: Product = {
       ...product,
+      processos: product.processos ? sanitizeProcesses(product.processos) : product.processos,
+      materials: product.materials ? sanitizeMaterials(product.materials) : product.materials,
       updatedAt: new Date().toISOString(),
       createdAt: product.createdAt || new Date().toISOString(),
     };
-    this.memProducts.set(updated.id, updated);
+    if (cleanProduct.activeRevision) {
+      cleanProduct.activeRevision = {
+        ...cleanProduct.activeRevision,
+        processos: cleanProduct.activeRevision.processos
+          ? sanitizeProcesses(cleanProduct.activeRevision.processos)
+          : cleanProduct.activeRevision.processos,
+        materials: cleanProduct.activeRevision.materials
+          ? sanitizeMaterials(cleanProduct.activeRevision.materials)
+          : cleanProduct.activeRevision.materials,
+      };
+    }
+    this.memProducts.set(cleanProduct.id, cleanProduct);
 
     // Se o produto possuir actualRecord vinculado, sincroniza na coleção de actualRecords
-    if (updated.actualRecord) {
-      this.memActualRecords.set(updated.actualRecord.id, updated.actualRecord);
+    if (cleanProduct.actualRecord) {
+      this.memActualRecords.set(cleanProduct.actualRecord.id, cleanProduct.actualRecord);
     }
 
     await this.persistChange();

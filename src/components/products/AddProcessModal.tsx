@@ -332,7 +332,7 @@ export const AddProcessModal: React.FC<AddProcessModalProps> = ({
     }
 
     const item: ProductProcessItem = {
-      id: initialProcess ? initialProcess.id : `proc_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      id: initialProcess?.id || `proc_${Date.now()}_${Math.random().toString(36).substring(2, 9)}_${Math.floor(Math.random() * 10000)}`,
       order: initialProcess ? initialProcess.order : nextOrder,
       tipoItem,
       origemId: origemId || undefined,
@@ -375,8 +375,8 @@ export const AddProcessModal: React.FC<AddProcessModalProps> = ({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title={initialProcess ? `Editar: ${initialProcess.nome}` : 'Vincular Máquina / Tarefa Produtiva'}
-      subtitle="Selecione um processo do parque fabril e configure o tipo de precificação (Custo por Hora ou por Milheiro)"
+      title={initialProcess ? `Editar: ${initialProcess.nome}` : 'Vincular Máquina / Equipamento'}
+      subtitle="Selecione um equipamento do parque fabril e configure o tipo de precificação (Custo por Hora ou por Milheiro)"
       maxWidth="2xl"
     >
       <div className="space-y-5 text-xs text-[#374151]">
@@ -386,98 +386,23 @@ export const AddProcessModal: React.FC<AddProcessModalProps> = ({
           </div>
         )}
 
-        {/* 1. SELETOR DE ORIGEM: MÁQUINA OU TAREFA */}
-        <div>
-          <label className="block font-semibold text-gray-700 mb-2">
-            1. Origem do Cadastro *
-          </label>
-          <div className="grid grid-cols-2 gap-3">
-            <button
-              type="button"
-              onClick={() => handleChangeTipoItem('MAQUINA')}
-              className={`p-3 rounded-xl border flex items-center gap-3 text-left transition-all ${
-                tipoItem === 'MAQUINA'
-                  ? 'border-[#01B8AA] bg-[#01B8AA]/10 ring-1 ring-[#01B8AA] text-[#00897B]'
-                  : 'border-gray-200 hover:border-gray-300 bg-white text-gray-600'
-              }`}
-            >
-              <div
-                className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
-                  tipoItem === 'MAQUINA'
-                    ? 'bg-[#01B8AA] text-white'
-                    : 'bg-gray-100 text-gray-500'
-                }`}
-              >
-                <Cpu className="w-4 h-4" />
-              </div>
-              <div>
-                <span className="font-bold text-xs block text-gray-900">Máquina do Parque</span>
-                <span className="text-[11px] text-gray-500 block">
-                  {activeMachines.length} máquina(s) disponível(is)
-                </span>
-              </div>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => handleChangeTipoItem('TAREFA')}
-              className={`p-3 rounded-xl border flex items-center gap-3 text-left transition-all ${
-                tipoItem === 'TAREFA'
-                  ? 'border-[#01B8AA] bg-[#01B8AA]/10 ring-1 ring-[#01B8AA] text-[#00897B]'
-                  : 'border-gray-200 hover:border-gray-300 bg-white text-gray-600'
-              }`}
-            >
-              <div
-                className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
-                  tipoItem === 'TAREFA'
-                    ? 'bg-[#01B8AA] text-white'
-                    : 'bg-gray-100 text-gray-500'
-                }`}
-              >
-                <Layers className="w-4 h-4" />
-              </div>
-              <div>
-                <span className="font-bold text-xs block text-gray-900">Tarefa Padronizada</span>
-                <span className="text-[11px] text-gray-500 block">
-                  {activeTasks.length} tarefa(s) cadastrada(s)
-                </span>
-              </div>
-            </button>
-          </div>
-        </div>
-
-        {/* 2. SELEÇÃO DO ITEM ESPECÍFICO */}
+        {/* 1. SELEÇÃO DA MÁQUINA / EQUIPAMENTO DO PARQUE */}
         <div>
           <label className="block font-semibold text-gray-700 mb-1">
-            2. Selecionar {tipoItem === 'MAQUINA' ? 'Máquina' : 'Tarefa'} Cadastrada *
+            1. Selecionar Máquina / Equipamento do Parque *
           </label>
-          {tipoItem === 'MAQUINA' ? (
-            <select
-              value={origemId}
-              onChange={(e) => handleSelectMachine(e.target.value)}
-              className="w-full px-3 py-2 text-xs border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#01B8AA]"
-            >
-              <option value="">-- Selecione uma Máquina --</option>
-              {activeMachines.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.nome} — {m.tipoCobranca === 'MILHEIRO' ? `${formatBRL(m.custoMilheiro)}/milheiro` : `${formatBRL(m.custoHora)}/hora`}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <select
-              value={origemId}
-              onChange={(e) => handleSelectTask(e.target.value)}
-              className="w-full px-3 py-2 text-xs border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#01B8AA]"
-            >
-              <option value="">-- Selecione uma Tarefa --</option>
-              {activeTasks.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.code} - {t.name} ({t.sector}) — {t.billingUnit === 'MILHEIRO' ? `${formatBRL(t.costPerThousand)}/milheiro` : `${formatBRL((t.hourlyMachineRate || 0) + (t.hourlyLaborRate || 0))}/hora`}
-                </option>
-              ))}
-            </select>
-          )}
+          <select
+            value={origemId}
+            onChange={(e) => handleSelectMachine(e.target.value)}
+            className="w-full px-3 py-2 text-xs border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#01B8AA]"
+          >
+            <option value="">-- Selecione uma Máquina ({activeMachines.length} disponíveis) --</option>
+            {activeMachines.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.nome} — {m.tipoCobranca === 'MILHEIRO' ? `${formatBRL(m.custoMilheiro)}/milheiro` : `${formatBRL(m.custoHora)}/hora`}
+              </option>
+            ))}
+          </select>
         </div>
 
         {/* Nome Customizado e Detalhes */}

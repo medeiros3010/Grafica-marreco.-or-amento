@@ -29,6 +29,8 @@ import {
   calculateProcessItemCost,
   calculateProcessItemActualCost,
   formatHoursToHMin,
+  sanitizeProcesses,
+  sanitizeMaterials,
 } from '../../services/calculator';
 import { storage } from '../../services/storage';
 import { ProductStatusBadge } from '../common/Badge';
@@ -156,8 +158,9 @@ export const ProductionLogsView: React.FC<ProductionLogsViewProps> = ({
     );
 
     // 1. Matérias-Primas do Orçado
-    const baseMaterials: ProductMaterialItem[] =
-      activeRev?.materials || currentProduct.materials || [];
+    const baseMaterials: ProductMaterialItem[] = sanitizeMaterials(
+      activeRev?.materials || currentProduct.materials || []
+    );
 
     const initMaterials = baseMaterials.map((m, idx) => {
       const matchSaved = existingRecord?.materials.find(
@@ -193,10 +196,11 @@ export const ProductionLogsView: React.FC<ProductionLogsViewProps> = ({
     setMaterialsState(initMaterials);
 
     // 2. Máquinas & Tarefas Produtivas do Orçado
-    const baseProcessos: ProductProcessItem[] =
+    const baseProcessos: ProductProcessItem[] = sanitizeProcesses(
       activeRev?.processos && activeRev.processos.length > 0
         ? activeRev.processos
-        : getProductProcesses(currentProduct);
+        : getProductProcesses(currentProduct)
+    );
 
     const initProcessos: ProcessoLogState[] = baseProcessos.map((proc, idx) => {
       const matchSaved = existingRecord?.processos?.find(
@@ -703,7 +707,6 @@ export const ProductionLogsView: React.FC<ProductionLogsViewProps> = ({
 
         {currentProduct && (
           <div className="flex items-center gap-2.5 shrink-0">
-            <ProductStatusBadge status={currentProduct.status} />
             <button
               onClick={handleCopyBudgetToActual}
               title="Copia todos os valores previstos para os campos de digitação real"
@@ -951,7 +954,7 @@ export const ProductionLogsView: React.FC<ProductionLogsViewProps> = ({
                     const isSavings = diff < 0;
 
                     return (
-                      <div key={mat.id} className="grid grid-cols-1 md:grid-cols-2 text-xs">
+                      <div key={`mat_log_${mat.id || idx}_${idx}`} className="grid grid-cols-1 md:grid-cols-2 text-xs">
                         {/* Lado Esquerdo: ORÇADO (Leitura) */}
                         <div className="p-3.5 bg-slate-50/80 border-r border-gray-200 flex flex-col justify-between space-y-1">
                           <div className="flex items-center justify-between">
@@ -1092,7 +1095,7 @@ export const ProductionLogsView: React.FC<ProductionLogsViewProps> = ({
                     const isExcess = diff > 0;
 
                     return (
-                      <div key={processo.id} className="grid grid-cols-1 md:grid-cols-2 text-xs">
+                      <div key={`proc_log_${processo.id || idx}_${idx}`} className="grid grid-cols-1 md:grid-cols-2 text-xs">
                         {/* Lado Esquerdo: ORÇADO (Leitura) */}
                         <div className="p-3.5 bg-slate-50/80 border-r border-gray-200 flex flex-col justify-between space-y-2">
                           <div className="flex items-center justify-between gap-2">

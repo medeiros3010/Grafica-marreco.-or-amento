@@ -49,7 +49,6 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
 }) => {
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<ProductStatus | 'ALL'>('ALL');
   const [successBanner, setSuccessBanner] = useState<string | null>(null);
 
   // Modal para criar/editar dados do produto
@@ -82,8 +81,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
       p.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
       p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (p.client && p.client.toLowerCase().includes(searchTerm.toLowerCase()));
-    const matchesStatus = statusFilter === 'ALL' || p.status === statusFilter;
-    return matchesSearch && matchesStatus;
+    return matchesSearch;
   });
 
   const handleCreateProduct = () => {
@@ -219,34 +217,6 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
           </span>
         </div>
 
-        {/* Abas de Status */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
-          <button
-            onClick={() => setStatusFilter('ALL')}
-            className={`px-3 py-1.5 font-medium rounded-lg transition-colors whitespace-nowrap shrink-0 ${
-              statusFilter === 'ALL'
-                ? 'bg-[#01B8AA] text-white shadow-sm'
-                : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
-            }`}
-          >
-            Todos os Status
-          </button>
-          {(['RASCUNHO', 'APROVADO', 'EM_PRODUCAO', 'CONCLUIDO', 'CANCELADO'] as ProductStatus[]).map(
-            (st) => (
-              <button
-                key={st}
-                onClick={() => setStatusFilter(st)}
-                className={`px-3 py-1.5 font-medium rounded-lg transition-colors whitespace-nowrap shrink-0 ${
-                  statusFilter === st
-                    ? 'bg-[#01B8AA] text-white shadow-sm'
-                    : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
-                }`}
-              >
-                {PRODUCT_STATUS_LABELS[st]}
-              </button>
-            )
-          )}
-        </div>
       </div>
 
       {/* Grid de Produtos */}
@@ -281,7 +251,9 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                 <div>
                   <div className="flex items-center justify-between gap-2 mb-2">
                     <span className="font-mono text-xs font-bold text-slate-500">{p.code}</span>
-                    <ProductStatusBadge status={p.status} />
+                    <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                      100% Editável
+                    </span>
                   </div>
 
                   <h4 className="text-sm font-bold text-slate-900 line-clamp-1 group-hover:text-blue-600 transition-colors">

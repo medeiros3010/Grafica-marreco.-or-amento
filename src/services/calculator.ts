@@ -391,49 +391,103 @@ export function calculateProcessItemActualCost(item: {
 }
 
 /**
+ * Sanitiza e garante unicidade absoluta dos IDs em listas de processos produtivos,
+ * prevenindo colisões de chaves e reparando duplicatas pré-existentes.
+ */
+export function sanitizeProcesses(processes: ProductProcessItem[]): ProductProcessItem[] {
+  if (!Array.isArray(processes)) return [];
+  const seenIds = new Set<string>();
+  const sanitized: ProductProcessItem[] = [];
+
+  for (let idx = 0; idx < processes.length; idx++) {
+    const proc = processes[idx];
+    if (!proc) continue;
+    let uniqueId = proc.id;
+    if (!uniqueId || seenIds.has(uniqueId)) {
+      uniqueId = `proc_${Date.now()}_${Math.random().toString(36).substring(2, 7)}_${idx}`;
+    }
+    seenIds.add(uniqueId);
+    sanitized.push({
+      ...proc,
+      id: uniqueId,
+      order: idx + 1,
+    });
+  }
+  return sanitized;
+}
+
+/**
+ * Sanitiza e garante unicidade absoluta dos IDs em listas de matérias-primas.
+ */
+export function sanitizeMaterials(materials: ProductMaterialItem[]): ProductMaterialItem[] {
+  if (!Array.isArray(materials)) return [];
+  const seenIds = new Set<string>();
+  const sanitized: ProductMaterialItem[] = [];
+
+  for (let idx = 0; idx < materials.length; idx++) {
+    const mat = materials[idx];
+    if (!mat) continue;
+    let uniqueId = mat.id;
+    if (!uniqueId || seenIds.has(uniqueId)) {
+      uniqueId = `mat_${Date.now()}_${Math.random().toString(36).substring(2, 7)}_${idx}`;
+    }
+    seenIds.add(uniqueId);
+    sanitized.push({
+      ...mat,
+      id: uniqueId,
+    });
+  }
+  return sanitized;
+}
+
+/**
  * Retorna os itens de Máquinas & Tarefas Produtivas do produto.
  * Se o produto ainda não tiver sido migrado, converte automaticamente
  * a estrutura antiga para a nova para assegurar integridade histórica.
+ * Garante sempre que todos os itens possuam IDs únicos e válidos.
  */
 export function getProductProcesses(product: Product): ProductProcessItem[] {
-  if (product.processos && product.processos.length > 0) {
-    return product.processos;
-  }
-  if (product.activeRevision?.processos && product.activeRevision.processos.length > 0) {
-    return product.activeRevision.processos;
-  }
-  // Migração transparente de operações legadas
-  const legacyOps = product.activeRevision?.operations?.length
-    ? product.activeRevision.operations
-    : product.draftOperations || [];
-  if (legacyOps.length > 0) {
-    return legacyOps.map((op, idx) => {
-      const isMilheiro = op.billingUnit === 'MILHEIRO';
-      const tempoHoras = Number(((op.plannedTotalSeconds || 0) / 3600).toFixed(2));
-      const custoHora = Number(((op.hourlyMachineRate || 0) + (op.hourlyLaborRate || 0)).toFixed(2));
-      const custoMilheiro = op.costPerThousand || 60;
-      const qtdProducao = op.plannedQuantity || product.quantity;
-      const custoTotal = isMilheiro
-        ? Number(((qtdProducao / 1000) * custoMilheiro).toFixed(2))
-        : Number((tempoHoras * custoHora).toFixed(2));
+  let list: ProductProcessItem[] = [];
 
-      return {
-        id: `proc_${op.id}`,
-        order: idx + 1,
-        tipoItem: op.machine ? 'MAQUINA' : 'TAREFA',
-        origemId: op.taskId,
-        nome: op.name,
-        descricao: op.machine ? `Máquina: ${op.machine}` : undefined,
-        tipoCobranca: isMilheiro ? 'MILHEIRO' : 'HORA',
-        tempoPrevistoHoras: tempoHoras,
-        custoHora: custoHora || 120,
-        quantidadeProducao: qtdProducao,
-        custoMilheiro: custoMilheiro || 60,
-        custoTotal,
-      };
-    });
+  if (product.processos && product.processos.length > 0) {
+    list = product.processos;
+  } else if (product.activeRevision?.processos && product.activeRevision.processos.length > 0) {
+    list = product.activeRevision.processos;
+  } else {
+    // Migração transparente de operações legadas
+    const legacyOps = product.activeRevision?.operations?.length
+      ? product.activeRevision.operations
+      : product.draftOperations || [];
+    if (legacyOps.length > 0) {
+      list = legacyOps.map((op, idx) => {
+        const isMilheiro = op.billingUnit === 'MILHEIRO';
+        const tempoHoras = Number(((op.plannedTotalSeconds || 0) / 3600).toFixed(2));
+        const custoHora = Number(((op.hourlyMachineRate || 0) + (op.hourlyLaborRate || 0)).toFixed(2));
+        const custoMilheiro = op.costPerThousand || 60;
+        const qtdProducao = op.plannedQuantity || product.quantity;
+        const custoTotal = isMilheiro
+          ? Number(((qtdProducao / 1000) * custoMilheiro).toFixed(2))
+          : Number((tempoHoras * custoHora).toFixed(2));
+
+        return {
+          id: `proc_${op.id || idx}`,
+          order: idx + 1,
+          tipoItem: op.machine ? 'MAQUINA' : 'TAREFA',
+          origemId: op.taskId,
+          nome: op.name,
+          descricao: op.machine ? `Máquina: ${op.machine}` : undefined,
+          tipoCobranca: isMilheiro ? 'MILHEIRO' : 'HORA',
+          tempoPrevistoHoras: tempoHoras,
+          custoHora: custoHora || 120,
+          quantidadeProducao: qtdProducao,
+          custoMilheiro: custoMilheiro || 60,
+          custoTotal,
+        };
+      });
+    }
   }
-  return [];
+
+  return sanitizeProcesses(list);
 }
 
 // ==========================================
@@ -1035,6 +1089,14 @@ export function computeProductComparisonSummary(
       matActual = mat.quantidadeReal * (mat.custoUnitarioReal ?? mat.custoUnitario);
     }
     blockAMaterialsActualCost += matActual || 0;
+
+    // Desvio por insumo (matéria-prima)
+    const matDiff = Number(((matActual || 0) - (mat.totalCusto || 0)).toFixed(2));
+    if (matDiff > 0) {
+      totalCostOverruns += matDiff;
+    } else if (matDiff < 0) {
+      totalCostSavings += Math.abs(matDiff);
+    }
   }
 
   // ==========================================
@@ -1043,6 +1105,10 @@ export function computeProductComparisonSummary(
   const rawProcesses = getProductProcesses(product);
   let plannedProcessosCost = 0;
   let actualProcessosCost = 0;
+  let procLaborPlanned = 0;
+  let procLaborActual = 0;
+  let procMachinePlanned = 0;
+  let procMachineActual = 0;
 
   const comparedProcessos: ProductProcessItem[] = rawProcesses.map((proc, idx) => {
     const plannedCost = calculateProcessItemCost(proc);
@@ -1058,6 +1124,23 @@ export function computeProductComparisonSummary(
 
     const actualCost = calculateProcessItemActualCost(matchActual);
     actualProcessosCost += actualCost;
+
+    // Desvios operacionais por processo / máquina
+    const procDiff = Number((actualCost - plannedCost).toFixed(2));
+    if (procDiff > 0) {
+      totalCostOverruns += procDiff;
+    } else if (procDiff < 0) {
+      totalCostSavings += Math.abs(procDiff);
+    }
+
+    // Categorização de Mão de Obra vs Máquina
+    if (proc.tipoItem === 'TAREFA') {
+      procLaborPlanned += plannedCost;
+      procLaborActual += actualCost;
+    } else {
+      procMachinePlanned += plannedCost;
+      procMachineActual += actualCost;
+    }
 
     return {
       ...proc,
@@ -1076,6 +1159,19 @@ export function computeProductComparisonSummary(
   plannedProcessosCost = Number(plannedProcessosCost.toFixed(2));
   actualProcessosCost = Number(actualProcessosCost.toFixed(2));
 
+  // Se houver processos produtivos unificados cadastrados, eles são a fonte da verdade para Máquina e Mão de Obra
+  if (comparedProcessos.length > 0) {
+    plannedLaborCost = Number(procLaborPlanned.toFixed(2));
+    actualLaborCost = Number(procLaborActual.toFixed(2));
+    plannedMachineCost = Number(procMachinePlanned.toFixed(2));
+    actualMachineCost = Number(procMachineActual.toFixed(2));
+  } else {
+    plannedLaborCost = Number(plannedLaborCost.toFixed(2));
+    actualLaborCost = Number(actualLaborCost.toFixed(2));
+    plannedMachineCost = Number(plannedMachineCost.toFixed(2));
+    actualMachineCost = Number(actualMachineCost.toFixed(2));
+  }
+
   // Custos totais orçados e realizados baseados EXCLUSIVAMENTE em Matérias-Primas + Máquinas & Tarefas Produtivas
   const totalPlannedMaterials = Number(blockAMaterialsPlannedCost.toFixed(2));
   const totalActualMaterials = Number(blockAMaterialsActualCost.toFixed(2));
@@ -1088,6 +1184,15 @@ export function computeProductComparisonSummary(
 
   // Diferença financeira e percentual
   const financialDifference = Number((finalActualTotalCost - finalPlannedTotalCost).toFixed(2));
+
+  // Se não houve desvios apontados em sub-etapas mas o saldo final difere:
+  if (totalCostOverruns === 0 && totalCostSavings === 0) {
+    if (financialDifference > 0) {
+      totalCostOverruns = financialDifference;
+    } else if (financialDifference < 0) {
+      totalCostSavings = Math.abs(financialDifference);
+    }
+  }
   const financialVariancePercent =
     finalPlannedTotalCost > 0
       ? Number(((financialDifference / finalPlannedTotalCost) * 100).toFixed(2))
@@ -1101,7 +1206,7 @@ export function computeProductComparisonSummary(
       : null;
 
   // ==========================================
-  // DETERMINAÇÃO DA QUANTIDADE ENTREGUE E CUSTO UNITÁRIO (PÓS-CÁLCULO)
+  // DETERMINAÇÃO DA QUANTIDADE ENTREGUE
   // ==========================================
   let deliveredQuantity = product.quantity;
   if (actualRecord?.quantidadeEntregue !== undefined && actualRecord.quantidadeEntregue > 0) {
@@ -1118,26 +1223,8 @@ export function computeProductComparisonSummary(
       ? Number(((quantityVariance / product.quantity) * 100).toFixed(2))
       : null;
 
-  const plannedUnitCost =
-    product.quantity > 0
-      ? Number((finalPlannedTotalCost / product.quantity).toFixed(4))
-      : 0;
-
-  // Custo unitário realizado considerando as peças efetivamente entregues ao cliente
-  const actualUnitCost =
-    deliveredQuantity > 0
-      ? Number((finalActualTotalCost / deliveredQuantity).toFixed(4))
-      : null;
-
-  const unitCostVariance =
-    actualUnitCost !== null ? Number((actualUnitCost - plannedUnitCost).toFixed(4)) : 0;
-  const unitCostVariancePercent =
-    plannedUnitCost > 0 && actualUnitCost !== null
-      ? Number(((unitCostVariance / plannedUnitCost) * 100).toFixed(2))
-      : null;
-
   // ==========================================
-  // BLOCOS B E C: PRECIFICAÇÃO E IMPACTO NA MARGEM
+  // BLOCOS B E C: PRECIFICAÇÃO E FORMAÇÃO DE PREÇO
   // ==========================================
   const pricingConfig =
     product.activeRevision?.pricing || product.pricing || DEFAULT_PRODUCT_PRICING;
@@ -1152,8 +1239,67 @@ export function computeProductComparisonSummary(
   const plannedProfitMarginValue = plannedPricing.profitMarginValue;
   const plannedProfitMarginPercent = plannedPricing.profitMarginPercent;
 
-  // Como o produto já foi vendido/faturado pelo Valor Final, os encargos proporcionais (impostos, comissão, juros) são fixos sobre o faturamento faturado
-  const fixedTaxesAndCharges = plannedPricing.taxValue + plannedPricing.commissionValue + plannedPricing.interestValue;
+  // Total de tributos, encargos e despesas
+  const fixedTaxesAndCharges = Number((
+    plannedPricing.taxValue +
+    plannedPricing.commissionValue +
+    plannedPricing.interestValue +
+    (plannedPricing.ipiValue || 0) +
+    (plannedPricing.icmsStValue || 0) +
+    (plannedPricing.additionalExpenses || 0)
+  ).toFixed(2));
+
+  // Custo Total Realizado com Tributos e Encargos
+  const actualTotalWithTaxes = Number((finalActualTotalCost + fixedTaxesAndCharges).toFixed(2));
+
+  // ==========================================
+  // DUAS VISÕES CLARAS DE CUSTO UNITÁRIO (PÓS-CÁLCULO)
+  // ==========================================
+  // VISÃO 1: Custo Unitário Direto de Produção (Sem Impostos / Bloco A)
+  // = Custo Total Bloco A / Tiragem
+  const plannedUnitCostDirect =
+    product.quantity > 0
+      ? Number((finalPlannedTotalCost / product.quantity).toFixed(4))
+      : 0;
+
+  const actualUnitCostDirect =
+    deliveredQuantity > 0
+      ? Number((finalActualTotalCost / deliveredQuantity).toFixed(4))
+      : null;
+
+  const unitCostDirectVariance =
+    actualUnitCostDirect !== null ? Number((actualUnitCostDirect - plannedUnitCostDirect).toFixed(4)) : 0;
+  const unitCostDirectVariancePercent =
+    plannedUnitCostDirect > 0 && actualUnitCostDirect !== null
+      ? Number(((unitCostDirectVariance / plannedUnitCostDirect) * 100).toFixed(2))
+      : null;
+
+  // VISÃO 2: Custo Unitário Comercial / Total (Com Impostos e Encargos / Valor Final de Venda)
+  // = Valor Final da Venda com Tributos e Encargos / Tiragem
+  const plannedUnitCostCommercial =
+    product.quantity > 0
+      ? Number((plannedPricing.finalTotal / product.quantity).toFixed(4))
+      : 0;
+
+  const actualUnitCostCommercial =
+    deliveredQuantity > 0
+      ? Number((actualTotalWithTaxes / deliveredQuantity).toFixed(4))
+      : null;
+
+  const unitCostCommercialVariance =
+    actualUnitCostCommercial !== null ? Number((actualUnitCostCommercial - plannedUnitCostCommercial).toFixed(4)) : 0;
+  const unitCostCommercialVariancePercent =
+    plannedUnitCostCommercial > 0 && actualUnitCostCommercial !== null
+      ? Number(((unitCostCommercialVariance / plannedUnitCostCommercial) * 100).toFixed(2))
+      : null;
+
+  // Compatibilidade com os campos base de custo unitário
+  const plannedUnitCost = plannedUnitCostDirect;
+  const actualUnitCost = actualUnitCostDirect;
+  const unitCostVariance = unitCostDirectVariance;
+  const unitCostVariancePercent = unitCostDirectVariancePercent;
+
+  // Reflexo na Margem de Lucro Efetiva
   const actualProfitMarginValue = Number((markupValue - fixedTaxesAndCharges - finalActualTotalCost).toFixed(2));
   const actualProfitMarginPercent = markupValue > 0
     ? Number(((actualProfitMarginValue / markupValue) * 100).toFixed(2))
@@ -1218,6 +1364,16 @@ export function computeProductComparisonSummary(
     actualUnitCost,
     unitCostVariance,
     unitCostVariancePercent,
+    plannedUnitCostDirect,
+    actualUnitCostDirect,
+    unitCostDirectVariance,
+    unitCostDirectVariancePercent,
+    plannedUnitCostCommercial,
+    actualUnitCostCommercial,
+    unitCostCommercialVariance,
+    unitCostCommercialVariancePercent,
+    fixedTaxesAndCharges,
+    actualTotalWithTaxes,
     productionVolumeAnalysis,
 
     // Tempos

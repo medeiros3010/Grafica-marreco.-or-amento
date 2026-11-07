@@ -117,7 +117,9 @@ export const ProductFinalReport: React.FC<ProductFinalReportProps> = ({
           <div className="text-right">
             <span className="font-mono text-sm font-bold text-gray-800 block">{product.code}</span>
             <div className="mt-1">
-              <ProductStatusBadge status={product.status} />
+              <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
+                Pós-Cálculo Industrial
+              </span>
             </div>
             <span className="text-[11px] text-gray-400 block mt-1">
               Emitido em {new Date().toLocaleDateString('pt-BR')}
@@ -142,9 +144,15 @@ export const ProductFinalReport: React.FC<ProductFinalReportProps> = ({
             </span>
           </div>
           <div>
-            <span className="text-gray-400 uppercase text-[10px] font-semibold block">Custo Unit. (Orçado x Real)</span>
+            <span className="text-gray-400 uppercase text-[10px] font-semibold block">Unit. Direto (Sem Imp.)</span>
             <span className="font-bold text-gray-800 tabular-nums block mt-0.5 font-mono">
-              {formatBRLUnit(summary.plannedUnitCost)} → {summary.actualUnitCost ? formatBRLUnit(summary.actualUnitCost) : '-'}
+              {formatBRLUnit(summary.plannedUnitCostDirect)} → {summary.actualUnitCostDirect ? formatBRLUnit(summary.actualUnitCostDirect) : '-'}
+            </span>
+          </div>
+          <div>
+            <span className="text-gray-400 uppercase text-[10px] font-semibold block">Unit. Venda (Com Imp.)</span>
+            <span className="font-bold text-indigo-700 tabular-nums block mt-0.5 font-mono">
+              {formatBRLUnit(summary.plannedUnitCostCommercial)} → {summary.actualUnitCostCommercial ? formatBRLUnit(summary.actualUnitCostCommercial) : '-'}
             </span>
           </div>
           <div>
@@ -193,15 +201,15 @@ export const ProductFinalReport: React.FC<ProductFinalReportProps> = ({
               </span>
             </div>
             <div className="bg-white p-2.5 rounded border border-gray-200">
-              <span className="text-gray-400 block text-[10px] uppercase font-bold">Custo Unitário Orçado</span>
+              <span className="text-gray-400 block text-[10px] uppercase font-bold">Unit. Direto (Sem Imp.)</span>
               <span className="font-bold font-mono text-gray-800 text-sm mt-0.5 block">
-                {formatBRLUnit(summary.plannedUnitCost)}
+                {formatBRLUnit(summary.plannedUnitCostDirect)} → {summary.actualUnitCostDirect ? formatBRLUnit(summary.actualUnitCostDirect) : 'Pendente'}
               </span>
             </div>
             <div className="bg-white p-2.5 rounded border border-gray-200">
-              <span className="text-gray-400 block text-[10px] uppercase font-bold">Custo Unitário Real</span>
-              <span className={`font-bold font-mono text-sm mt-0.5 block ${summary.unitCostVariance > 0 ? 'text-[#EF4444]' : 'text-[#10B981]'}`}>
-                {summary.actualUnitCost ? formatBRLUnit(summary.actualUnitCost) : 'Pendente'}
+              <span className="text-indigo-600 block text-[10px] uppercase font-bold">Unit. Comercial (Com Imp.)</span>
+              <span className={`font-bold font-mono text-sm mt-0.5 block ${summary.unitCostCommercialVariance > 0 ? 'text-[#EF4444]' : 'text-[#10B981]'}`}>
+                {formatBRLUnit(summary.plannedUnitCostCommercial)} → {summary.actualUnitCostCommercial ? formatBRLUnit(summary.actualUnitCostCommercial) : 'Pendente'}
               </span>
             </div>
           </div>
@@ -375,7 +383,7 @@ export const ProductFinalReport: React.FC<ProductFinalReportProps> = ({
                     const diff = real - orçado;
                     const pct = orçado > 0 ? (diff / orçado) * 100 : 0;
                     return (
-                      <li key={proc.id || idx} className="flex justify-between items-center bg-white p-2 rounded border border-red-100">
+                      <li key={`over_proc_${proc.id || idx}_${idx}`} className="flex justify-between items-center bg-white p-2 rounded border border-red-100">
                         <span className="font-medium text-gray-800">
                           [{proc.tipoItem === 'MAQUINA' ? 'Máquina' : 'Tarefa'}] {proc.nome}
                         </span>
@@ -405,7 +413,7 @@ export const ProductFinalReport: React.FC<ProductFinalReportProps> = ({
                     const diff = real - orçado;
                     const pct = orçado > 0 ? (diff / orçado) * 100 : 0;
                     return (
-                      <li key={proc.id || idx} className="flex justify-between items-center bg-white p-2 rounded border border-emerald-100">
+                      <li key={`under_proc_${proc.id || idx}_${idx}`} className="flex justify-between items-center bg-white p-2 rounded border border-emerald-100">
                         <span className="font-medium text-gray-800">
                           [{proc.tipoItem === 'MAQUINA' ? 'Máquina' : 'Tarefa'}] {proc.nome}
                         </span>

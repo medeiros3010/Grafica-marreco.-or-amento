@@ -55,8 +55,8 @@ export const Header: React.FC<HeaderProps> = ({
       subtitle: 'Visão consolidada de orçamentos, ordens em chão de fábrica e análise de desvios',
     },
     'machines-tasks': {
-      title: 'Máquinas & Tarefas Produtivas',
-      subtitle: 'Gestão unificada do parque gráfico, custos/hora de equipamentos e catálogo de tarefas parametrizadas',
+      title: 'Máquinas & Equipamentos',
+      subtitle: 'Gestão do parque fabril gráfico, custos operacionais e taxas por hora ou milheiro',
     },
     materials: {
       title: 'Catálogo de Matérias-Primas (Insumos)',
@@ -64,7 +64,7 @@ export const Header: React.FC<HeaderProps> = ({
     },
     products: {
       title: 'Produtos & Orçamentos (3 Blocos)',
-      subtitle: 'Bloco A (Custos MP + Tarefas), Bloco B (Markup por dentro) e Bloco C (Impostos por fora e Preço Final)',
+      subtitle: 'Bloco A (Custos MP + Máquinas), Bloco B (Markup por dentro) e Bloco C (Impostos por fora e Preço Final)',
     },
     logs: {
       title: 'Apontamento do Realizado (Layout Espelho)',

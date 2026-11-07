@@ -23,6 +23,8 @@ import {
   getProductProcesses,
   calculateProcessItemCost,
   formatHoursToHMin,
+  sanitizeProcesses,
+  sanitizeMaterials,
 } from '../../services/calculator';
 import { ProductStatusBadge } from '../common/Badge';
 import { Modal } from '../common/Modal';
@@ -230,6 +232,8 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
       list.push(materialItem);
     }
 
+    list = sanitizeMaterials(list);
+
     const updatedProduct: Product = {
       ...currentProduct,
       materials: list,
@@ -251,7 +255,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
 
   const handleConfirmDeleteMaterial = async () => {
     if (!matToDelete) return;
-    const list = (currentProduct.materials || []).filter((m) => m.id !== matToDelete);
+    const list = sanitizeMaterials((currentProduct.materials || []).filter((m) => m.id !== matToDelete));
     const updatedProduct: Product = {
       ...currentProduct,
       materials: list,
@@ -284,11 +288,13 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
       list.push(processItem);
     }
 
-    list = list.map((p, idx) => ({
-      ...p,
-      order: idx + 1,
-      custoTotal: calculateProcessItemCost(p),
-    }));
+    list = sanitizeProcesses(
+      list.map((p, idx) => ({
+        ...p,
+        order: idx + 1,
+        custoTotal: calculateProcessItemCost(p),
+      }))
+    );
 
     const updatedProduct: Product = {
       ...currentProduct,
@@ -317,9 +323,11 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
 
   const handleConfirmDeleteProcess = async () => {
     if (!processToDelete) return;
-    const filtered = getProductProcesses(currentProduct)
-      .filter((p) => p.id !== processToDelete)
-      .map((p, idx) => ({ ...p, order: idx + 1 }));
+    const filtered = sanitizeProcesses(
+      getProductProcesses(currentProduct)
+        .filter((p) => p.id !== processToDelete)
+        .map((p, idx) => ({ ...p, order: idx + 1 }))
+    );
 
     const updatedProduct: Product = {
       ...currentProduct,
@@ -349,7 +357,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
     list[index] = list[targetIndex];
     list[targetIndex] = temp;
 
-    const reordered = list.map((p, idx) => ({ ...p, order: idx + 1 }));
+    const reordered = sanitizeProcesses(list.map((p, idx) => ({ ...p, order: idx + 1 })));
     const updatedProduct: Product = {
       ...currentProduct,
       processos: reordered,
@@ -526,7 +534,6 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
             <div className="flex items-center gap-2.5 flex-wrap">
               <span className="font-mono font-bold text-sm text-gray-500">{currentProduct.code}</span>
               <h2 className="text-lg font-bold text-[#374151] tracking-tight">{currentProduct.name}</h2>
-              <ProductStatusBadge status={currentProduct.status} />
               <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
                 <Check className="w-3 h-3" /> 100% Editável
               </span>
@@ -577,93 +584,6 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
         </div>
       </div>
 
-      {/* Painel Informativo de Status e Ações Flexíveis (SEM BLOQUEIOS OU CONGELAMENTO) */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 p-4 rounded-xl border bg-white border-gray-200 shadow-sm">
-        <div className="flex items-center gap-3">
-          <div
-            className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-              currentProduct.status === 'APROVADO'
-                ? 'bg-emerald-100 text-emerald-700'
-                : currentProduct.status === 'EM_PRODUCAO'
-                ? 'bg-blue-100 text-blue-700'
-                : currentProduct.status === 'CONCLUIDO'
-                ? 'bg-purple-100 text-purple-700'
-                : 'bg-amber-100 text-amber-700'
-            }`}
-          >
-            {currentProduct.status === 'APROVADO' ? (
-              <FileCheck className="w-5 h-5 text-emerald-600" />
-            ) : (
-              <Edit2 className="w-5 h-5 text-amber-600" />
-            )}
-          </div>
-          <div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-xs font-bold text-[#374151]">
-                Status do Orçamento:
-              </span>
-              <ProductStatusBadge status={currentProduct.status} />
-              {currentProduct.activeRevision && (
-                <span className="text-[11px] text-gray-500 font-mono">
-                  (Revisão nº {currentProduct.currentRevisionNumber || 1} registrada)
-                </span>
-              )}
-            </div>
-            <p className="text-xs text-gray-500 mt-0.5">
-              <strong>Modo de Edição Livre:</strong> Matérias-primas, máquinas, tarefas, tiragem e alíquotas permanecem 100% editáveis a qualquer momento.
-            </p>
-          </div>
-        </div>
-
-        {/* Controles de Status e Ações Sem Travas */}
-        <div className="flex items-center gap-2 shrink-0 flex-wrap">
-          {/* Seletor Rápido de Status */}
-          <div className="flex items-center gap-1.5 text-xs">
-            <span className="text-gray-500 font-medium">Alterar Status:</span>
-            <select
-              value={currentProduct.status}
-              onChange={(e) => handleStatusChange(e.target.value as ProductStatus)}
-              className="px-2.5 py-1.5 text-xs font-semibold border border-gray-300 rounded-lg bg-white text-gray-800 focus:ring-2 focus:ring-[#01B8AA] focus:outline-none"
-            >
-              <option value="RASCUNHO">Rascunho / Em Edição</option>
-              <option value="APROVADO">Orçamento Aprovado</option>
-              <option value="EM_PRODUCAO">Em Produção</option>
-              <option value="CONCLUIDO">Concluído</option>
-              <option value="CANCELADO">Cancelado</option>
-            </select>
-          </div>
-
-          {currentProduct.status !== 'APROVADO' ? (
-            <button
-              onClick={handleApproveBudget}
-              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-[#10B981] hover:bg-[#059669] rounded-lg shadow-sm transition-colors"
-              title="Aprova a versão do orçamento e mantém a edição 100% aberta"
-            >
-              <CheckCircle className="w-4 h-4" />
-              Aprovar Versão do Orçamento
-            </button>
-          ) : (
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => handleStatusChange('EM_PRODUCAO')}
-                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors"
-              >
-                <Play className="w-3.5 h-3.5" />
-                Iniciar Produção
-              </button>
-              <button
-                onClick={handleApproveBudget}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 rounded-lg transition-colors"
-                title="Registra uma nova versão no histórico de revisões sem fechar a edição"
-              >
-                <History className="w-3.5 h-3.5 text-gray-400" />
-                Salvar Nova Versão no Histórico
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-
       {/* ========================================================================= */}
       {/* BLOCO A: CUSTOS (MATÉRIA-PRIMA + MÁQUINAS & TAREFAS PRODUTIVAS) */}
       {/* ========================================================================= */}
@@ -675,7 +595,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
             </span>
             <div>
               <h3 className="text-base font-bold text-[#374151]">
-                Bloco A: Custos (Matéria Prima + Tarefas)
+                Bloco A: Custos (Matéria Prima + Máquinas)
               </h3>
               <p className="text-xs text-gray-500">
                 Levantamento detalhado dos insumos e das horas produtivas, de acerto ou milheiros.
@@ -740,8 +660,8 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                     </td>
                   </tr>
                 ) : (
-                  displayedMaterials.map((mat) => (
-                    <tr key={mat.id} className="hover:bg-teal-50/20 even:bg-slate-50/40 transition-colors">
+                  displayedMaterials.map((mat, idx) => (
+                    <tr key={`mat_${mat.id || idx}_${idx}`} className="hover:bg-teal-50/20 even:bg-slate-50/40 transition-colors">
                       <td className="py-2.5 px-4 font-semibold text-gray-800">{mat.nome}</td>
                       <td className="py-2.5 px-4 text-center text-gray-600 font-mono">{mat.unidade}</td>
                       <td className="py-2.5 px-4 text-right font-mono font-medium">
@@ -801,7 +721,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <Cpu className="w-4 h-4 text-[#01B8AA]" />
-              <h4 className="text-sm font-bold text-[#374151]">Máquinas & Tarefas Produtivas</h4>
+              <h4 className="text-sm font-bold text-[#374151]">Máquinas & Equipamentos</h4>
               <span className="text-xs text-gray-400">
                 ({displayedProcessos.length} {displayedProcessos.length === 1 ? 'item' : 'itens'})
               </span>
@@ -815,7 +735,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-[#01B8AA] hover:bg-[#009E91] rounded-lg shadow-sm transition-colors"
             >
               <Plus className="w-3.5 h-3.5" />
-              Vincular Máquina / Tarefa
+              Vincular Máquina / Equipamento
             </button>
           </div>
 
@@ -848,7 +768,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                     const isHora = proc.tipoCobranca === 'HORA';
 
                     return (
-                      <tr key={proc.id} className="hover:bg-teal-50/20 even:bg-slate-50/40 transition-colors">
+                      <tr key={`proc_${proc.id || idx}_${idx}`} className="hover:bg-teal-50/20 even:bg-slate-50/40 transition-colors">
                         <td className="py-2.5 px-3 text-center font-bold text-gray-400">
                           <div className="flex flex-col items-center">
                             <button
@@ -971,7 +891,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
               <tfoot className="bg-gray-50 border-t border-gray-200 font-semibold text-xs">
                 <tr>
                   <td colSpan={5} className="py-2.5 px-4 text-right text-gray-600 uppercase tracking-wider text-[11px]">
-                    Subtotal Máquinas & Tarefas Produtivas:
+                    Subtotal Máquinas & Equipamentos:
                   </td>
                   <td className="py-2.5 px-4 text-right font-bold text-[#00897B] font-mono text-sm">
                     {formatBRL(subtotalProcessos)}
@@ -991,10 +911,10 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
             </div>
             <div>
               <span className="text-xs font-bold text-gray-700 uppercase tracking-wider block">
-                CUSTO TOTAL (Matéria Prima + Máquinas & Tarefas)
+                CUSTO TOTAL (Matéria Prima + Máquinas & Equipamentos)
               </span>
               <p className="text-xs text-gray-500">
-                Subtotal Matérias-Primas ({formatBRL(subtotalMateriais)}) + Subtotal Máquinas & Tarefas ({formatBRL(subtotalProcessos)})
+                Subtotal Matérias-Primas ({formatBRL(subtotalMateriais)}) + Subtotal Máquinas & Equipamentos ({formatBRL(subtotalProcessos)})
               </p>
             </div>
           </div>
@@ -1167,7 +1087,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                 <td className="py-2 px-4 text-right font-mono font-bold text-gray-900">
                   {formatBRL(custoTotalBlocoA)}
                 </td>
-                <td className="py-2 px-4 text-gray-500">Matéria-Prima + Tarefas Produtivas</td>
+                <td className="py-2 px-4 text-gray-500">Matéria-Prima + Máquinas & Equipamentos</td>
               </tr>
               <tr className="even:bg-slate-50/40">
                 <td className="py-2 px-4 font-semibold text-emerald-700">Margem de Lucro Alvo</td>
