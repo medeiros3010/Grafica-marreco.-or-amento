@@ -40,8 +40,21 @@ export interface StorageStatusListener {
 
 export interface BackupData {
   format: 'GRAFICACUSTOS_BACKUP';
+  system?: string;
   version: number;
+  schemaVersion?: string;
   exportedAt: string;
+  exportedBy?: string;
+  summary?: {
+    totalMachines: number;
+    totalMaterials: number;
+    totalTasks: number;
+    totalProducts: number;
+    totalRevisions: number;
+    totalProductionLogs: number;
+    totalActualRecords: number;
+    totalBudgetedValue: number;
+  };
   machines: Machine[];
   materials: RawMaterial[];
   tasks: StandardTask[];
@@ -55,6 +68,7 @@ export interface BackupData {
     products: number;
     logs: number;
     actualRecords: number;
+    revisions?: number;
   };
 }
 
@@ -1091,6 +1105,23 @@ class StorageService {
     return Array.from(this.memActualRecords.values());
   }
 
+  getDatabaseCounts() {
+    let totalRevisions = 0;
+    this.memProducts.forEach((p) => {
+      if (Array.isArray(p.revisions)) totalRevisions += p.revisions.length;
+    });
+
+    return {
+      machines: this.memMachines.size,
+      materials: this.memMaterials.size,
+      tasks: this.memTasks.size,
+      products: this.memProducts.size,
+      revisions: totalRevisions,
+      logs: this.memLogs.size,
+      actualRecords: this.memActualRecords.size,
+    };
+  }
+
   // ==========================================
   // BACKUP COMPLETO E RESTAURAÇÃO (JSON)
   // ==========================================
@@ -1104,10 +1135,40 @@ class StorageService {
     const logs = Array.from(this.memLogs.values());
     const actualRecords = Array.from(this.memActualRecords.values());
 
+    let totalRevisions = 0;
+    let totalBudgetedValue = 0;
+    for (const p of products) {
+      if (Array.isArray(p.revisions)) {
+        totalRevisions += p.revisions.length;
+      }
+      if (p.activeRevision?.finalTotal) {
+        totalBudgetedValue += p.activeRevision.finalTotal;
+      } else if (p.pricing) {
+        const totalA = (p.processos?.reduce((sum, item) => sum + (item.custoTotal || 0), 0) || 0) +
+                       (p.materials?.reduce((sum, mat) => sum + (mat.totalCusto || 0), 0) || 0);
+        if (totalA > 0) {
+          totalBudgetedValue += totalA;
+        }
+      }
+    }
+
     const backup: BackupData = {
       format: 'GRAFICACUSTOS_BACKUP',
+      system: 'Gráfica Marreco - Orçamento, Apontamento e Custos',
       version: DB_VERSION,
+      schemaVersion: '2.0',
       exportedAt: new Date().toISOString(),
+      exportedBy: this.driveUser?.email || 'Armazenamento Local',
+      summary: {
+        totalMachines: machines.length,
+        totalMaterials: materials.length,
+        totalTasks: tasks.length,
+        totalProducts: products.length,
+        totalRevisions,
+        totalProductionLogs: logs.length,
+        totalActualRecords: actualRecords.length,
+        totalBudgetedValue: Math.round(totalBudgetedValue * 100) / 100,
+      },
       machines,
       materials,
       tasks,
@@ -1121,6 +1182,7 @@ class StorageService {
         products: products.length,
         logs: logs.length,
         actualRecords: actualRecords.length,
+        revisions: totalRevisions,
       },
     };
 
@@ -1133,7 +1195,7 @@ class StorageService {
       if (parsed.format !== 'GRAFICACUSTOS_BACKUP') {
         return {
           valid: false,
-          error: 'Formato de arquivo incompatível. O arquivo deve ser um backup gerado pela Gráfica Marreco.',
+          error: 'Formato de arquivo incompatível. O arquivo deve ser um backup gerado pela Gráfica Marreco (format: GRAFICACUSTOS_BACKUP).',
         };
       }
       if (!Array.isArray(parsed.tasks) || !Array.isArray(parsed.products) || !Array.isArray(parsed.logs)) {
@@ -1143,24 +1205,52 @@ class StorageService {
         };
       }
 
+      const machines = Array.isArray(parsed.machines) ? parsed.machines : [];
+      const materials = Array.isArray(parsed.materials) ? parsed.materials : [];
+      const tasks = Array.isArray(parsed.tasks) ? parsed.tasks : [];
+      const products = Array.isArray(parsed.products) ? parsed.products : [];
+      const logs = Array.isArray(parsed.logs) ? parsed.logs : [];
+      const actualRecords = Array.isArray(parsed.actualRecords) ? parsed.actualRecords : [];
+
+      let totalRevisions = 0;
+      for (const p of products) {
+        if (Array.isArray(p.revisions)) {
+          totalRevisions += p.revisions.length;
+        }
+      }
+
       // Normaliza coleções adicionais se ausentes em backups legados
       const normalized: BackupData = {
         format: 'GRAFICACUSTOS_BACKUP',
+        system: parsed.system || 'Gráfica Marreco - Orçamento, Apontamento e Custos',
         version: parsed.version || DB_VERSION,
+        schemaVersion: parsed.schemaVersion || '2.0',
         exportedAt: parsed.exportedAt || new Date().toISOString(),
-        machines: Array.isArray(parsed.machines) ? parsed.machines : [],
-        materials: Array.isArray(parsed.materials) ? parsed.materials : [],
-        tasks: parsed.tasks,
-        products: parsed.products,
-        logs: parsed.logs,
-        actualRecords: Array.isArray(parsed.actualRecords) ? parsed.actualRecords : [],
+        exportedBy: parsed.exportedBy || 'Importado via Arquivo',
+        summary: parsed.summary || {
+          totalMachines: machines.length,
+          totalMaterials: materials.length,
+          totalTasks: tasks.length,
+          totalProducts: products.length,
+          totalRevisions,
+          totalProductionLogs: logs.length,
+          totalActualRecords: actualRecords.length,
+          totalBudgetedValue: 0,
+        },
+        machines,
+        materials,
+        tasks,
+        products,
+        logs,
+        actualRecords,
         counts: {
-          machines: Array.isArray(parsed.machines) ? parsed.machines.length : 0,
-          materials: Array.isArray(parsed.materials) ? parsed.materials.length : 0,
-          tasks: parsed.tasks.length,
-          products: parsed.products.length,
-          logs: parsed.logs.length,
-          actualRecords: Array.isArray(parsed.actualRecords) ? parsed.actualRecords.length : 0,
+          machines: machines.length,
+          materials: materials.length,
+          tasks: tasks.length,
+          products: products.length,
+          logs: logs.length,
+          actualRecords: actualRecords.length,
+          revisions: totalRevisions,
         },
       };
 

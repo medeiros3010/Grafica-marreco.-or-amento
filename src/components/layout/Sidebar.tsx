@@ -15,6 +15,7 @@ import {
   CheckCircle2,
   Cpu,
   Package,
+  Download,
 } from 'lucide-react';
 
 export type ActiveTab =
@@ -189,13 +190,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <span className="truncate">Bateria de Testes (15/15)</span>
         </button>
 
-        {/* Botão de Backup Local JSON */}
+        {/* Botão de Exportar Tudo / Backup JSON */}
         <button
           onClick={onOpenBackup}
-          className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-xs font-medium text-white/80 hover:text-white hover:bg-white/10 transition-colors"
+          className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-xs font-medium text-white/90 hover:text-white hover:bg-white/10 transition-colors group cursor-pointer"
+          title="Exportar absolutamente tudo que foi cadastrado em um único arquivo JSON"
         >
-          <HardDrive className="w-4 h-4 text-white" />
-          <span className="truncate">Backup & Dados JSON</span>
+          <div className="flex items-center gap-3 truncate">
+            <Download className="w-4 h-4 text-white group-hover:scale-110 transition-transform" />
+            <span className="truncate font-semibold">Exportar Tudo (JSON)</span>
+          </div>
+          <span className="text-[9px] font-bold uppercase bg-white/20 px-1.5 py-0.5 rounded text-white tracking-wider">
+            Único
+          </span>
         </button>
       </nav>
 

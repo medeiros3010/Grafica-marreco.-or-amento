@@ -18,9 +18,17 @@ import firebaseConfig from '../../firebase-applet-config.json';
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 
-// Provedor Google com escopo para arquivos no Google Drive
+export const SCOPES = [
+  'https://www.googleapis.com/auth/drive',
+  'https://www.googleapis.com/auth/drive.file',
+  'https://www.googleapis.com/auth/drive.appdata',
+  'https://www.googleapis.com/auth/drive.metadata',
+  'https://www.googleapis.com/auth/drive.readonly',
+];
+
+// Provedor Google com os escopos configurados do Google Drive
 const provider = new GoogleAuthProvider();
-provider.addScope('https://www.googleapis.com/auth/drive.file');
+SCOPES.forEach((scope) => provider.addScope(scope));
 // Forçar seleção de conta se necessário
 provider.setCustomParameters({
   prompt: 'select_account',

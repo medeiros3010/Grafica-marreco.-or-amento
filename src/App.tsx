@@ -157,6 +157,7 @@ export default function App() {
           }
           onOpenGoogleDriveModal={() => setIsDriveModalOpen(true)}
           onOpenGoogleAuth={() => setIsAuthStartupModalOpen(true)}
+          onOpenBackup={() => setIsBackupOpen(true)}
         />
 
         {/* Viewport de Conteúdo com Rolagem */}
@@ -173,6 +174,7 @@ export default function App() {
                 }}
                 onGoToAnalysis={handleGoToAnalysis}
                 onGoToLogs={handleGoToLogs}
+                onOpenBackup={() => setIsBackupOpen(true)}
               />
             )}
 

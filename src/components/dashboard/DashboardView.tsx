@@ -25,6 +25,7 @@ import {
   ArrowRight,
   Filter,
   Layers,
+  Download,
 } from 'lucide-react';
 
 interface DashboardViewProps {
@@ -34,6 +35,7 @@ interface DashboardViewProps {
   onSelectProduct: (productId: string) => void;
   onGoToAnalysis: (productId: string) => void;
   onGoToLogs: (productId: string) => void;
+  onOpenBackup?: () => void;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -43,6 +45,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onSelectProduct,
   onGoToAnalysis,
   onGoToLogs,
+  onOpenBackup,
 }) => {
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [clientFilter, setClientFilter] = useState<string>('ALL');
@@ -169,9 +172,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           )}
         </div>
 
-        <span className="text-xs text-slate-500 font-medium tabular-nums">
-          Visualizando {summaries.length} de {products.length} produtos
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-slate-500 font-medium tabular-nums">
+            Visualizando {summaries.length} de {products.length} produtos
+          </span>
+          {onOpenBackup && (
+            <button
+              type="button"
+              onClick={onOpenBackup}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#01B8AA]/10 hover:bg-[#01B8AA]/20 text-[#01B8AA] font-semibold border border-[#01B8AA]/30 rounded-lg text-xs transition-colors cursor-pointer"
+              title="Exportar tudo cadastrado em um único arquivo JSON"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Exportar Tudo (JSON)</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Cartões KPIs Principais */}

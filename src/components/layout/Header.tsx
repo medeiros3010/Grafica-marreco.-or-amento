@@ -6,7 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { ActiveTab } from './Sidebar';
 import { storage, SaveStatus } from '../../services/storage';
-import { CheckCircle2, Loader2, AlertCircle, Cloud, RefreshCw } from 'lucide-react';
+import { CheckCircle2, Loader2, AlertCircle, Cloud, RefreshCw, Download, FileJson } from 'lucide-react';
 
 interface HeaderProps {
   activeTab: ActiveTab;
@@ -15,6 +15,7 @@ interface HeaderProps {
   newActionLabel?: string;
   onOpenGoogleDriveModal?: () => void;
   onOpenGoogleAuth?: () => void;
+  onOpenBackup?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -24,6 +25,7 @@ export const Header: React.FC<HeaderProps> = ({
   newActionLabel,
   onOpenGoogleDriveModal,
   onOpenGoogleAuth,
+  onOpenBackup,
 }) => {
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
   const [lastSaved, setLastSaved] = useState<Date>(new Date());
@@ -210,6 +212,19 @@ export const Header: React.FC<HeaderProps> = ({
               <path fill="none" d="M0 0h48v48H0z" />
             </svg>
             <span className="hidden sm:inline">Conectar Google Drive</span>
+          </button>
+        )}
+
+        {/* Botão de Exportar Tudo em JSON */}
+        {onOpenBackup && (
+          <button
+            type="button"
+            onClick={onOpenBackup}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-slate-50 border border-slate-300 hover:border-[#01B8AA] text-slate-700 rounded-lg text-xs font-semibold shadow-2xs transition-all cursor-pointer"
+            title="Exportar tudo cadastrado em um único arquivo JSON (máquinas, tarefas, produtos, etc.)"
+          >
+            <Download className="w-3.5 h-3.5 text-[#01B8AA]" />
+            <span className="hidden sm:inline">Exportar Tudo (JSON)</span>
           </button>
         )}
 
